@@ -1,2 +1,2 @@
 # tira-harj
-HY - Aineopintojen harjoitustyö: Tietorakenteet ja algoritmit 
+HY - Aineopintojen harjoitustyö: Algoritmit ja tekoäly
