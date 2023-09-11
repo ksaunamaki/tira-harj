@@ -12,3 +12,6 @@ dotnet_diagnostic.IDE0057.severity = none
 
 # Disable Use conditional expression for return check for code clarity
 dotnet_diagnostic.IDE0046.severity = none
+
+# Disable Add braces for code clarity
+dotnet_diagnostic.IDE0011.severity = none
