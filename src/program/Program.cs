@@ -71,7 +71,7 @@ namespace Tiracompress
                 return 0;
             }
 
-            // Check that input file is available
+            // Tarkista että syötetiedosto on olemassa
             if (!File.Exists(inputFile))
             {
                 Console.WriteLine($"Input file '{inputFile}' not found!");
