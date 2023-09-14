@@ -315,4 +315,140 @@ public class HuffmanTests
         // 0
         Assert.False(IsBitSet(codeForF.Item1, 1));
     }
+
+    [Fact]
+    public void TestBitsOutput()
+    {
+        var huffman = new Huffman();
+
+        /*
+        Koodataan useampi koodibittijono pieneen puskuriin
+        0010 000 010000 11010 111 1100001010100 1111111010101010100010
+        0x2  0x0 0x10   0x1A  0x7 0x1854        0x3FAAA2
+
+        Odotettu puskurin sisältö:
+        [00100000] = 0x20 [10000110] = 0x86 [10111110] = 0xBE 
+        [00010101] = 0x15 [00111111] = 0x3F [10101010] = 0xAA [10100010] = 0xA2
+        */
+
+        using var stream = new MemoryStream();
+
+        var buffer = new byte[8]; // Jätetään yksi tavu lopussa vapaaksi jotta puskuria ei uloskirjoiteta
+        int outputBytePointer = 0;
+        int outputBitPointer = 0;
+
+        var flushedToStream = huffman.MoveBitsToOutput(0x2, 4, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(0, outputBytePointer);
+        Assert.Equal(4, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0x0, 3, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(0, outputBytePointer);
+        Assert.Equal(7, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0x10, 6, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(1, outputBytePointer);
+        Assert.Equal(5, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0x1A, 5, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(2, outputBytePointer);
+        Assert.Equal(2, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0x7, 3, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(2, outputBytePointer);
+        Assert.Equal(5, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0x18, 5, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(3, outputBytePointer);
+        Assert.Equal(2, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0x54, 8, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(4, outputBytePointer);
+        Assert.Equal(2, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0x3F, 6, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(5, outputBytePointer);
+        Assert.Equal(0, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0xAA, 8, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(6, outputBytePointer);
+        Assert.Equal(0, outputBitPointer);
+
+        flushedToStream = huffman.MoveBitsToOutput(0xA2, 8, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        Assert.Equal(0, (int)flushedToStream);
+        Assert.Equal(7, outputBytePointer);
+        Assert.Equal(0, outputBitPointer);
+
+        Assert.Equal(0x20, buffer[0]);
+        Assert.Equal(0x86, buffer[1]);
+        Assert.Equal(0xBE, buffer[2]);
+        Assert.Equal(0x15, buffer[3]);
+        Assert.Equal(0x3F, buffer[4]);
+        Assert.Equal(0xAA, buffer[5]);
+        Assert.Equal(0xA2, buffer[6]);
+    }
+
+    [Fact]
+    public void TestBufferFlushOutput()
+    {
+        var huffman = new Huffman();
+
+        using var stream = new MemoryStream();
+
+        var buffer = new byte[2];
+        int outputBytePointer = 0;
+        int outputBitPointer = 0;
+
+        var flushedToStream = huffman.MoveBitsToOutput(0xFF, 4, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        flushedToStream = huffman.MoveBitsToOutput(0xFF, 4, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        flushedToStream = huffman.MoveBitsToOutput(0xFF, 4, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+        flushedToStream = huffman.MoveBitsToOutput(0xFF, 4, ref buffer, ref outputBytePointer, ref outputBitPointer, stream);
+
+        Assert.Equal(2, (int)flushedToStream);
+        Assert.Equal(2, stream.Length);
+    }
+
+    [Fact]
+    public void TestEncodeDecodeRoundtrip_Input1()
+    {
+        var huffman = new Huffman();
+
+        using var inputStream = new MemoryStream(_testinput_1);
+        using var encodedOutputStream = new MemoryStream();
+
+        var frequencies = huffman.BuildSymbolFrequencies(inputStream);
+        var rootNode = huffman.BuildHuffmanTree(frequencies);
+        var codeTable = huffman.BuildCodeTable(rootNode);
+
+        var results = huffman.Encode(rootNode, codeTable, inputStream, encodedOutputStream);
+
+        var uncompressedDataSize = results.Item1;
+
+        using var uncompressedOutputStream = new MemoryStream();
+
+        var elapsed = huffman.Decode(encodedOutputStream, uncompressedOutputStream);
+
+        Assert.NotNull(elapsed);
+        Assert.Equal((long)uncompressedDataSize, (long)uncompressedOutputStream.Length);
+
+        uncompressedOutputStream.Position = 0;
+
+        foreach (var expectedByte in _testinput_1)
+        {
+            var b = uncompressedOutputStream.ReadByte();
+
+            if (b < 0)
+                Assert.Fail("Unexpected end of uncompressed data stream");
+
+            Assert.Equal(expectedByte, (byte)b);
+        }
+    }
 }
