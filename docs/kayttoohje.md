@@ -40,7 +40,7 @@ dotnet run --project program/tiracompress.csproj -- --input:/tmp/silesia/dickens
 --input:*infile* = Ohjelmalle annettava syötetiedoston polku jonka sisältö käsitellään  
 --output:*outfile* = Ohjelmalle annettava ulosvientitiedoston polku jonne käsitelty sisältö kirjoitetaan  
 --mode:[compress|uncompress] = Pakataanko vai puretaanko syötetiedoston sisältö  
---algorithm:[huffman|lz77|deflate] = Käytettävä algoritmi (tällä hetkellä vain Huffman-koodaus toteutettuna)  
+--algorithm:[huffman|lz77|deflate] = Käytettävä algoritmi (tällä hetkellä vain Huffman- ja LZ77-koodaus toteutettuna)  
 
 ## Yksikkötestauksen ajo
 

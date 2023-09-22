@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace Tiracompress.Algorithms
 {
     /// <summary>
-    /// Tämä luokka toteuttaa Huffman -algoritmiin perustuvat tiedon koodauksen/pakkauksena ja purkamisen
+    /// Tämä luokka toteuttaa Huffman -algoritmiin perustuvan tiedon koodauksen/pakkauksen sekä purkamisen
     /// </summary>
     public class Huffman
     {
