@@ -25,14 +25,26 @@ namespace Tiracompress.Algorithms
         }
 
         private readonly int _windowMaxSize;
+        private readonly int _inputBufferSize;
+        private readonly int _outputBufferSize;
 
         /// <summary>
-        /// Luo uuden LZ77 algoritmin halutulla ikkunan koolla
+        /// Luo uuden LZ77 algoritmin, optionaalisesti oletuksesta poikkeavalla ikkunan koolla ja/tai puskurien koolla.
         /// </summary>
-        /// <param name="windowSize">Ikkunan koko tavuina</param>
-        public Lz77(int windowSize)
+        /// <param name="windowSize">Ikkunan koko tavuina (oletus: 32 kilotavua)</param>
+        /// <param name="inputBufferSize">Käytettävä sisääntulevan tietovirran puskurin koko (oletus: 64 kilotavua)</param>
+        /// <param name="outputBufferSize">Käytettävä ulosmenevän tietovirran puskurin koko (oletus: 64 kilotavua)</param>
+        public Lz77(
+            int? windowSize = null,
+            int? inputBufferSize = null,
+            int? outputBufferSize = null)
         {
-            _windowMaxSize = windowSize;
+            _windowMaxSize = windowSize ?? 32 * 1024;
+
+            // Puskurien koko vaikuttaa levy-I/O:n määrään (l. I/O:n tehokkuuteen) koska kaikki luku ja kirjoitus
+            // tietovirtoihin tehdään puskurien kautta
+            _inputBufferSize = inputBufferSize ?? 64 * 1024;
+            _outputBufferSize = outputBufferSize ?? 64 * 1024;
         }
 
         /// <summary>
@@ -258,7 +270,7 @@ namespace Tiracompress.Algorithms
             ref int outputBytePointer,
             Stream outputStream,
             ref ulong compressedBytes,
-            byte? nextChar)
+            byte nextChar)
         {
             // Kirjoita etäisyyden alempi tavu (LE järjestys)
             outputBuffer[outputBytePointer] = (byte)(distance & 0xFF);
@@ -291,11 +303,8 @@ namespace Tiracompress.Algorithms
             }
 
             // Kirjoita seuraava tavu
-            if (nextChar.HasValue)
-            {
-                outputBuffer[outputBytePointer] = nextChar.Value;
-                outputBytePointer++;
-            }
+            outputBuffer[outputBytePointer] = nextChar;
+            outputBytePointer++;
         }
 
         /// <summary>
@@ -305,16 +314,16 @@ namespace Tiracompress.Algorithms
         /// <param name="window">Pakkausikkuna</param>
         /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
         /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
-        /// <returns>Pakatun datan koko tavuina</returns>
-        private ulong Encode(
+        /// <returns>Tuple (pakattu datan koko, literaalien määrä, viittausten määrä)</returns>
+        public (ulong, ulong, ulong) Encode(
             byte[] window,
             Stream inputStream,
             Stream outputStream)
         {
             ulong compressedBytes = 0;
 
-            var inputBuffer = new byte[64 * 1024];
-            var outputBuffer = new byte[64 * 1024];
+            var inputBuffer = new byte[_inputBufferSize];
+            var outputBuffer = new byte[_outputBufferSize];
 
             var inputPointer = -1;
             var outputBytePointer = 0;
@@ -323,8 +332,8 @@ namespace Tiracompress.Algorithms
             long windowFrontPointer = 0;
             long windowBackPointer = 0;
 
-            long literals = 0;
-            long references = 0;
+            ulong literals = 0;
+            ulong references = 0;
 
             byte? nextByte;
 
@@ -365,7 +374,7 @@ namespace Tiracompress.Algorithms
                         ref outputBytePointer,
                         outputStream,
                         ref compressedBytes,
-                        nextByte);
+                        nextByte.Value);
 
                     references++;
                 }
@@ -386,11 +395,7 @@ namespace Tiracompress.Algorithms
 
             outputStream.Flush();
 
-            Console.WriteLine();
-            Console.WriteLine($"Literal bytes encoded: {literals}");
-            Console.WriteLine($"References encoded: {references}");
-
-            return compressedBytes;
+            return (compressedBytes, literals, references);
         }
 
         /// <summary>
@@ -406,8 +411,8 @@ namespace Tiracompress.Algorithms
         /// </summary>
         /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
         /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
-        /// <returns>Tuple (pakkaamaton datan koko, pakattu datan koko, koodausaika)</returns>
-        public (ulong, ulong, TimeSpan) Encode(
+        /// <returns>Tuple (pakkaamaton datan koko, pakattu datan koko, literaalien määrä, viittausten määrä, koodausaika)</returns>
+        public (ulong, ulong, ulong, ulong, TimeSpan) Encode(
             Stream inputStream,
             Stream outputStream)
         {
@@ -423,30 +428,31 @@ namespace Tiracompress.Algorithms
             // Luo uusi ikkuna
             var window = new byte[_windowMaxSize];
 
-            ulong compressedSize = Encode(window, inputStream, outputStream);
+            (ulong compressedSize, ulong literals, ulong references) = Encode(window, inputStream, outputStream);
 
             var elapsed = timing.Elapsed;
 
-            return (inputSize, compressedSize, elapsed);
+            return (inputSize, compressedSize, literals, references, elapsed);
         }
 
         /// <summary>
         /// Purkaa sisääntulevan tietovirran ulosmenevään tietovirtaan.
         /// 
-        /// Käsittelee tietovirtoja 64kB blokkikoossa.
+        /// Käsittelee tietovirtoja luokan määritellyssä puskurikoossa.
         /// </summary>
+        /// <param name="window">Pakkausikkuna</param>
         /// <param name="inputStream">Sisääntuleva tietovirta</param>
         /// <param name="outputStream">Ulosmenevä tietovirta</param>
-        private bool DecodeInternal(
+        public bool Decode(
+            byte[] window,
             Stream inputStream,
             Stream outputStream)
         {
             ulong uncompressedBytes = 0;
 
-            var inputBuffer = new byte[64 * 1024];
-            var outputBuffer = new byte[64 * 1024];
+            var inputBuffer = new byte[_inputBufferSize];
+            var outputBuffer = new byte[_outputBufferSize];
 
-            var window = new byte[_windowMaxSize];
             long windowFrontPointer = 0;
             long windowBackPointer = 0;
 
@@ -592,10 +598,13 @@ namespace Tiracompress.Algorithms
             inputStream.Position = 0;
             outputStream.SetLength(0);
 
+            // Uusi ikkuna dekoodaukseen
+            var window = new byte[_windowMaxSize];
+
             // Aloita dekoodaus
             var timing = Stopwatch.StartNew();
 
-            if (!DecodeInternal(inputStream, outputStream))
+            if (!Decode(window, inputStream, outputStream))
             {
                 // Ei kyetty purkamaan dataosuutta, virheellinen tiedostosisältö?
                 return null;

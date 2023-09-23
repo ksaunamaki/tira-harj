@@ -16,7 +16,7 @@ namespace Tiracompress
 
             Console.WriteLine();
             Console.Write("Compressing data... ");
-            (ulong uncompressed, ulong compressed, TimeSpan timing) = lz77.Encode(
+            (ulong uncompressed, ulong compressed, ulong literals, ulong references, TimeSpan timing) = lz77.Encode(
                                                         input,
                                                         output);
 
@@ -37,7 +37,7 @@ namespace Tiracompress
             }
 
             Console.WriteLine($"Encoding took: {timing:c}");
-            Console.WriteLine($"Input data size: {uncompressed} bytes, output data size: {compressed} bytes = {reduction:P2} reduction");
+            Console.WriteLine($"Input data size: {uncompressed} bytes, literals encoded = {literals}, references encoded = {references}, output data size: {compressed} bytes = {reduction:P2} reduction");
 
             return 0;
         }

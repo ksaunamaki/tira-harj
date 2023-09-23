@@ -1,0 +1,21 @@
+# Viikkoraportti, viikko 3
+
+Tämän viikon aikana on sovellukseen lisätty perustasolla toimiva LZ77 algoritmi, joka käyttää pakkaukseen ja purkamiseen 32 kilotavun ikkunaa ajettaessa sovellusta. Toteutettu algoritmi itsessään antaa mahdollisuuden määritellä ikkunan koon 0 < n <= 64 kilotavun välille, koska takaisinpäin viittauksiin käytetään kahden tavun kokoista 16-bittistä etumerkitöntä lukua jolla voidaan viitata maksimissaan 64 kilotavun taakse ikkunassa. Kyseinen toteutus on koodauksen osalta (toistaiseksi) hyvin tilaepätehokas, koska jokainen yksittäinen literaali symboli jota ei löydetty pakkausikkunasta vie tilaa 3 tavua ja takaisinpäinviittaus 4 tavua (sisältäen viittauksen lisäksi seuraavan symbolin jota ei enää viittauksesta löytynyt). 
+
+Lisäksi koodaustoteutus ei ainakaan tässä vaiheessa toimi parhaalla mahdollisella tavalla optimaalisen vastaavuden löydön suhteen, koska skannatessa ikkunaa taaksepäin otetaan vain ensimmäinen vastaava symboli joka löytyy ja sen perästä koitetaan löytää seuraavia vastaavuuksia syötevirasta luettujen lisäsymbolien perusteella. Tämä johtaa muunmuassa siihen että koodaus tuottaa runsaasti yhden symbolin pituuden pituisia takaisinpäinviittauksia. Optimaalisin vastaavuutta etsivä algoritmi koittaisi löytää pituudeltaan pisimmän symbolijonon, joka koko ikkunasta löytyy suhteessa syötevirtaan. Tässä kohtaa ko. algoritmin toteutuksen suhteen oli lähde-/referenssimateriaalien perusteella hieman epäselvää mitä taktiikkaa alunperäinen LZ77 algoritmi asian suhteen itseasiassa käytti - koska pakkausikkuna on lineaarinen M tavun puskuri, koko puskurin skannaaminen läpi lopusta alkuun *jokaisen* syötesymbolin perusteella tekisi algoritmista aikavaativuudeltaan N * M (ei vain niiden symbolien osalta joille mitään vastaavuutta ei ikkunasta löydy), mikä vaikuttaa hieman hitaalta tehokkaan pakkauksen suhteen.
+
+Yhtenä parannusajatuksena sekä vastaavuden optimaalisuuden parantamiseen että N * M skannauksen välttämiseen on, että mikäli ensimmäinen symbolin osalta vastaavuus ikkunasta löytyy, algoritmi skannaisi vielä taaksepäin esimerkiksi vain puolet jäljellä olevasta käsittelemättömästä ikkunasta. Tällöin algoritmi voisi ottaa kaikki ensimmäisen symbolin vastaavuden kohdat ikkunasta, ja ruveta skannaamaan niitä kaikkia eteenpäin sitä mukaan kun uusia syötevirrassa olevia symboleja luetaan ja karsia muita vaihtoehtoja sen mukaan missä pituuden osalta löytyy toisia pidempiä vastaavuuksia, kunnes mikään kohdista ei enää vastaa seuraavan syötesymbolin osalta. Tämä parannus sinänsä on suhteellisen helposti integroitavissa nykyiseen koodiin.
+
+Toinen parannus liittyen koodauksen tilatehokkuuteen on käyttää myöhemmässä LZSS algoritmissa olevaa tapaa merkitä koodauksessa literaalita ja viittaukset käyttäen yhden bitin merkkiä, jolla literaalien koodaus saadaan efektiivisesti 9 bittiin nykyisen 3 tavun sijasta. LZSS variantin toteutus tässä projektissa on jokatapauksessa todennäköistä, koska sitä käytetään Deflate -algoritmissa perus-LZ77 sijasta.
+
+Kaikenkaikkiaan yleishuomiona LZ77 algoritmin toteutuksessa oli se, että vaikka useampikin lähdemateriaali sinänäsä kuvaa perustasolla miten koodaus toimii, eli etsitään viittauksia ikkunasta ja tuotetaan sen perusteella kahdentyyppisiä koodisarjoja, useimmiten se että *miten* vastaavuudet tulisi ikkunasta skannata algoritmisesti jotta saadaan mahdollisimman optimaalinen viittaus jää osin selittämättä. Koska tällä viikolla käytettävissä oli hieman vähemmän työskentelyaikaa toteutukseen kuin edellisen viikon Huffman -algoritmissa, yksinkertaisuuden vuoksi suoraviivainen "lineaarinen skannaus ja ensimmäinen vastaavuus" lähestymistapa valittiin tässä vaiheessa.
+
+
+## Tuntikirjanpito
+
+| Päivä | Käytetty aika | Kuvaus |
+| ----- | ------------- | ------ |
+| 18.9.  | 1,5h          | LZ77 algoritmin toteutuksen aloitus |
+| 22.9.  | 5h            | LZ77 algoritmin toteutusta ja testien luonti |
+| 23.9.  | 2h            | LZ77 algoritmin viilaus, yksikkötestien lisääminen sekä testidokumentointi |
+| Yhteensä | 8,5h         |        |
