@@ -305,8 +305,6 @@ namespace Tiracompress.Algorithms
 
             do
             {
-                Console.WriteLine($"{inputStream.Position}");
-
                 // Luetaan ja prosessoidaan blokki kerrallaan
                 try
                 {
