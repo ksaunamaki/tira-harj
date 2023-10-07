@@ -83,20 +83,22 @@ namespace Tiracompress.Algorithms
         /// Lisätään uusi sisääntuleva tavu ikkunaan
         /// </summary>
         /// <param name="window">Ikkunapuskuri johon lisätään</param>
+        /// <param name="windowSize">Ikkunapuskurin (maksimi)koko</param>
         /// <param name="input">Tavu joka lisätään</param>
         /// <param name="windowFrontPointer">Ikkunan looginen alkukohta</param>
         /// <param name="windowBackPointer">Ikkunan looginen loppukohta</param>
-        public void AddInputToWindow(
+        public static void AddInputToWindow(
             byte[] window,
+            int windowSize,
             byte input,
             ref long windowFrontPointer,
             ref long windowBackPointer)
         {
-            window[windowBackPointer % _windowMaxSize] = input;
+            window[windowBackPointer % windowSize] = input;
 
             // Siirrä loogisia ikkunan aloitus ja lopetusrajoja
 
-            if ((int)(windowBackPointer - windowFrontPointer) < _windowMaxSize)
+            if ((int)(windowBackPointer - windowFrontPointer) < windowSize)
             {
                 // Ikkuna ei ole vielä kasvanut maksimiin
                 windowBackPointer++;
@@ -156,7 +158,12 @@ namespace Tiracompress.Algorithms
                 }
 
                 // Ensimmäinen vastaavuus löytyi, aloitetaan lisäämään uutta sisääntulevaa tavuvirtaa ikkunaan
-                AddInputToWindow(window, firstByte.Value, ref windowFrontPointer, ref windowBackPointer);
+                AddInputToWindow(
+                    window,
+                    _windowMaxSize,
+                    firstByte.Value,
+                    ref windowFrontPointer,
+                    ref windowBackPointer);
 
                 // Asetetaan etäisyysviittaus alkukohtaan
                 distance = distance_actual;
@@ -173,7 +180,12 @@ namespace Tiracompress.Algorithms
 
                     if (nextByte_tmp != null)
                     {
-                        AddInputToWindow(window, nextByte_tmp.Value, ref windowFrontPointer, ref windowBackPointer);
+                        AddInputToWindow(
+                            window,
+                            _windowMaxSize,
+                            nextByte_tmp.Value,
+                            ref windowFrontPointer,
+                            ref windowBackPointer);
 
                         if (window[j % _windowMaxSize] != nextByte_tmp.Value)
                         {
@@ -209,7 +221,12 @@ namespace Tiracompress.Algorithms
 
             if (distance == 0)
             {
-                AddInputToWindow(window, firstByte.Value, ref windowFrontPointer, ref windowBackPointer);
+                AddInputToWindow(
+                    window,
+                    _windowMaxSize,
+                    firstByte.Value,
+                    ref windowFrontPointer,
+                    ref windowBackPointer);
             }
 
             return (distance, length, nextByte ?? firstByte);
@@ -309,7 +326,7 @@ namespace Tiracompress.Algorithms
 
         /// <summary>
         /// Pakkaa sisääntulevan tietovirran ulosmenevään tietovirtaan käyttäen määriteltyä
-        /// LZ77 ikkunaa koodaustaulukkoa.
+        /// LZ77 ikkunaa.
         /// </summary>
         /// <param name="window">Pakkausikkuna</param>
         /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
@@ -501,7 +518,12 @@ namespace Tiracompress.Algorithms
                             outputBytePointer++;
                             uncompressedBytes++;
 
-                            AddInputToWindow(window, symbol, ref windowFrontPointer, ref windowBackPointer);
+                            AddInputToWindow(
+                                window,
+                                _windowMaxSize,
+                                symbol,
+                                ref windowFrontPointer,
+                                ref windowBackPointer);
 
                             break;
                         default:
@@ -532,7 +554,12 @@ namespace Tiracompress.Algorithms
                                 outputBytePointer++;
                                 uncompressedBytes++;
 
-                                AddInputToWindow(window, symbol, ref windowFrontPointer, ref windowBackPointer);
+                                AddInputToWindow(
+                                    window,
+                                    _windowMaxSize,
+                                    symbol,
+                                    ref windowFrontPointer,
+                                    ref windowBackPointer);
 
                                 // Tarkista loppuiko blokki
                                 if (outputBytePointer >= outputBuffer.Length)
@@ -549,7 +576,12 @@ namespace Tiracompress.Algorithms
                             outputBytePointer++;
                             uncompressedBytes++;
 
-                            AddInputToWindow(window, symbol, ref windowFrontPointer, ref windowBackPointer);
+                            AddInputToWindow(
+                                window,
+                                _windowMaxSize,
+                                symbol,
+                                ref windowFrontPointer,
+                                ref windowBackPointer);
 
                             break;
                     }
