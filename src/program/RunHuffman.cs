@@ -29,10 +29,10 @@ namespace Tiracompress
 
             Console.WriteLine();
 
-            var root = huffman.BuildHuffmanTree(freq);
+            var root = Huffman.BuildHuffmanTree(freq);
 
             // Use tree to build code table
-            var codeTable = huffman.BuildCodeTable(root);
+            var codeTable = Huffman.BuildCodeTable(root);
 
             Console.WriteLine();
             Console.Write("Huffman code table for encoding: ");

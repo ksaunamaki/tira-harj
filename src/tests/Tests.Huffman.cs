@@ -94,7 +94,7 @@ public class HuffmanTests
         using var memoryStream = new MemoryStream(_testinput_1);
 
         var frequencies = huffman.BuildSymbolFrequencies(memoryStream);
-        var rootNode = huffman.BuildHuffmanTree(frequencies);
+        var rootNode = Huffman.BuildHuffmanTree(frequencies);
 
         // Test tree's correctness
         Assert.Null(rootNode.Symbol);
@@ -128,19 +128,19 @@ public class HuffmanTests
         using var memoryStream = new MemoryStream(_testinput_1);
 
         var frequencies = huffman.BuildSymbolFrequencies(memoryStream);
-        var rootNode = huffman.BuildHuffmanTree(frequencies);
-        var table = huffman.BuildCodeTable(rootNode);
+        var rootNode = Huffman.BuildHuffmanTree(frequencies);
+        var table = Huffman.BuildCodeTable(rootNode);
 
         Assert.Equal(4, table.Count);
 
-        Assert.Contains<byte, (uint, int)>(0xA, table);
+        Assert.Contains<ushort, (uint, int)>(0xA, table);
 
         var codeForA = table[0xA];
 
         Assert.True(IsBitSet(codeForA.Item1, 1));
         Assert.True(IsBitSet(codeForA.Item1, 2));
 
-        Assert.Contains<byte, (uint, int)>(0xB, table);
+        Assert.Contains<ushort, (uint, int)>(0xB, table);
 
         var codeForB = table[0xB];
 
@@ -148,13 +148,13 @@ public class HuffmanTests
         Assert.False(IsBitSet(codeForB.Item1, 2));
         Assert.True(IsBitSet(codeForB.Item1, 3));
 
-        Assert.Contains<byte, (uint, int)>(0xC, table);
+        Assert.Contains<ushort, (uint, int)>(0xC, table);
 
         var codeForC = table[0xC];
 
         Assert.False(IsBitSet(codeForC.Item1, 1));
 
-        Assert.Contains<byte, (uint, int)>(0xD, table);
+        Assert.Contains<ushort, (uint, int)>(0xD, table);
 
         var codeForD = table[0xD];
 
@@ -211,7 +211,7 @@ public class HuffmanTests
         using var memoryStream = new MemoryStream(_testinput_2);
 
         var frequencies = huffman.BuildSymbolFrequencies(memoryStream);
-        var rootNode = huffman.BuildHuffmanTree(frequencies);
+        var rootNode = Huffman.BuildHuffmanTree(frequencies);
 
         // Test tree's correctness
         Assert.Null(rootNode.Symbol);
@@ -256,12 +256,12 @@ public class HuffmanTests
         using var memoryStream = new MemoryStream(_testinput_2);
 
         var frequencies = huffman.BuildSymbolFrequencies(memoryStream);
-        var rootNode = huffman.BuildHuffmanTree(frequencies);
-        var table = huffman.BuildCodeTable(rootNode);
+        var rootNode = Huffman.BuildHuffmanTree(frequencies);
+        var table = Huffman.BuildCodeTable(rootNode);
 
         Assert.Equal(6, table.Count);
 
-        Assert.Contains<byte, (uint, int)>(0xA, table);
+        Assert.Contains<ushort, (uint, int)>(0xA, table);
 
         var codeForA = table[0xA];
 
@@ -271,7 +271,7 @@ public class HuffmanTests
         Assert.True(IsBitSet(codeForA.Item1, 3));
         Assert.True(IsBitSet(codeForA.Item1, 4));
 
-        Assert.Contains<byte, (uint, int)>(0xB, table);
+        Assert.Contains<ushort, (uint, int)>(0xB, table);
 
         var codeForB = table[0xB];
 
@@ -281,7 +281,7 @@ public class HuffmanTests
         Assert.True(IsBitSet(codeForB.Item1, 3));
         Assert.True(IsBitSet(codeForB.Item1, 4));
 
-        Assert.Contains<byte, (uint, int)>(0xC, table);
+        Assert.Contains<ushort, (uint, int)>(0xC, table);
 
         var codeForC = table[0xC];
 
@@ -290,7 +290,7 @@ public class HuffmanTests
         Assert.False(IsBitSet(codeForC.Item1, 2));
         Assert.True(IsBitSet(codeForC.Item1, 3));
 
-        Assert.Contains<byte, (uint, int)>(0xD, table);
+        Assert.Contains<ushort, (uint, int)>(0xD, table);
 
         var codeForD = table[0xD];
 
@@ -299,7 +299,7 @@ public class HuffmanTests
         Assert.False(IsBitSet(codeForD.Item1, 2));
         Assert.True(IsBitSet(codeForD.Item1, 3));
 
-        Assert.Contains<byte, (uint, int)>(0xE, table);
+        Assert.Contains<ushort, (uint, int)>(0xE, table);
 
         var codeForE = table[0xE];
 
@@ -308,7 +308,7 @@ public class HuffmanTests
         Assert.True(IsBitSet(codeForE.Item1, 2));
         Assert.True(IsBitSet(codeForE.Item1, 3));
 
-        Assert.Contains<byte, (uint, int)>(0xF, table);
+        Assert.Contains<ushort, (uint, int)>(0xF, table);
 
         var codeForF = table[0xF];
 
@@ -425,8 +425,8 @@ public class HuffmanTests
         using var encodedOutputStream = new MemoryStream();
 
         var frequencies = huffman.BuildSymbolFrequencies(inputStream);
-        var rootNode = huffman.BuildHuffmanTree(frequencies);
-        var codeTable = huffman.BuildCodeTable(rootNode);
+        var rootNode = Huffman.BuildHuffmanTree(frequencies);
+        var codeTable = Huffman.BuildCodeTable(rootNode);
 
         var results = huffman.Encode(rootNode, codeTable, inputStream, encodedOutputStream);
 

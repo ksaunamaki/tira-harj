@@ -15,7 +15,7 @@ namespace Tiracompress.Algorithms
             /// <summary>
             /// Tämän solmun sisältämä symboli tai null mikäli välisolmu
             /// </summary>
-            public byte? Symbol { get; set; }
+            public ushort? Symbol { get; set; }
 
             /// <summary>
             /// Symboolin esiintymistiheys tai lapsisolmujen summa mikäli välisolmu
@@ -36,7 +36,7 @@ namespace Tiracompress.Algorithms
             /// Luo uusi symbolisolmu
             /// </summary>
             /// <param name="symbolFrequency">Symboli ja esiintymistiheys jota tämä solmu edustaa</param>
-            public Node((byte, ulong) symbolFrequency)
+            public Node((ushort, ulong) symbolFrequency)
             {
                 Symbol = symbolFrequency.Item1;
                 Frequency = symbolFrequency.Item2;
@@ -56,15 +56,16 @@ namespace Tiracompress.Algorithms
         }
 
         /// <summary>
-        /// Rakentaa rekursiivisesti koodaustaulukon Huffman-symbolipuusta
+        /// Rakentaa rekursiivisesti koodaustaulukon Huffman-symbolipuusta.
+        /// Staattinen metodi jotta voidaan kutsua myös Deflate-algoritmista.
         /// </summary>
         /// <param name="node">Solmu joka käsitellään</param>
         /// <param name="table">Taulukko johon lisätään löydetyt symbolit</param>
         /// <param name="code">Tämänhetkinen koodijono</param>
         /// <param name="depth">Tämänhetkinen koodijonon pituus bitteinä</param>
-        private void BuildTableFromTree(
+        private static void BuildTableFromTree(
             Node node,
-            IDictionary<byte, (uint, int)> table,
+            IDictionary<ushort, (uint, int)> table,
             uint code = 0,
             int depth = 0)
         {
@@ -103,13 +104,14 @@ namespace Tiracompress.Algorithms
         }
 
         /// <summary>
-        /// Rakentaa pakkaukseen käytettävän koodaustaulukon Huffman-symbolipuusta
+        /// Rakentaa pakkaukseen käytettävän koodaustaulukon Huffman-symbolipuusta.
+        /// Staattinen metodi jotta voidaan kutsua myös Deflate-algoritmista.
         /// </summary>
         /// <param name="huffmanTreeRoot">Huffman-symbolipuun juurisolmu</param>
         /// <returns>Koodaustaulukko jossa avaimena symbolit</returns>
-        public IDictionary<byte, (uint, int)> BuildCodeTable(Node huffmanTreeRoot)
+        public static IDictionary<ushort, (uint, int)> BuildCodeTable(Node huffmanTreeRoot)
         {
-            var table = new Dictionary<byte, (uint, int)>();
+            var table = new Dictionary<ushort, (uint, int)>();
 
             BuildTableFromTree(huffmanTreeRoot, table);
 
@@ -117,11 +119,12 @@ namespace Tiracompress.Algorithms
         }
 
         /// <summary>
-        /// Rakentaa Huffman-symbolipuun symboleista ja niiden esiintymistiheyksistä
+        /// Rakentaa Huffman-symbolipuun symboleista ja niiden esiintymistiheyksistä.
+        /// Staattinen metodi jotta voidaan kutsua myös Deflate-algoritmista.
         /// </summary>
         /// <param name="symbolFrequencies">Symbolien esiintymistiheydet</param>
         /// <returns>Huffman-symbolipuun juurisolmu</returns>
-        public Node BuildHuffmanTree(IList<(byte, ulong)> symbolFrequencies)
+        public static Node BuildHuffmanTree(IEnumerable<(ushort, ulong)> symbolFrequencies)
         {
             var heap = new LinkedList<Node>();
 
@@ -180,14 +183,14 @@ namespace Tiracompress.Algorithms
         /// </summary>
         /// <param name="inputStream">Sisääntuleva tietovirta</param>
         /// <returns>Listan symboleista (tavut) ja niiden esiintymistiheyksistä sisääntulevassa tietovirrassa</returns>
-        public IList<(byte, ulong)> BuildSymbolFrequencies(Stream inputStream)
+        public IList<(ushort, ulong)> BuildSymbolFrequencies(Stream inputStream)
         {
             var buffer = new byte[1024 * 1024];
-            var dictionary = new Dictionary<byte, ulong>(byte.MaxValue);
+            var dictionary = new Dictionary<ushort, ulong>(ushort.MaxValue);
 
             for (int b = byte.MinValue; b <= byte.MaxValue; b++)
             {
-                dictionary.Add((byte)b, 0);
+                dictionary.Add((ushort)b, 0);
             }
 
             int read;
@@ -245,7 +248,7 @@ namespace Tiracompress.Algorithms
             {
                 // This is leaf node
                 outputStream.WriteByte(0x01);
-                outputStream.WriteByte(node.Symbol.Value);
+                outputStream.WriteByte((byte)node.Symbol.Value);
                 return;
             }
 
@@ -386,7 +389,7 @@ namespace Tiracompress.Algorithms
         /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
         /// <returns>Pakatun datan koko tavuina</returns>
         private ulong Encode(
-            IDictionary<byte, (uint, int)> codeTable,
+            IDictionary<ushort, (uint, int)> codeTable,
             Stream inputStream,
             Stream outputStream)
         {
@@ -494,7 +497,7 @@ namespace Tiracompress.Algorithms
         /// <returns>Tuple (pakkaamaton datan koko, pakattu datan koko, koodausaika)</returns>
         public (ulong, ulong, TimeSpan) Encode(
             Node huffmanTreeRoot,
-            IDictionary<byte, (uint, int)> codeTable,
+            IDictionary<ushort, (uint, int)> codeTable,
             Stream inputStream,
             Stream outputStream)
         {
@@ -648,7 +651,7 @@ namespace Tiracompress.Algorithms
 
                         if (node.Symbol.HasValue)
                         {
-                            outputBuffer[outputBytePointer] = node.Symbol.Value;
+                            outputBuffer[outputBytePointer] = (byte)node.Symbol.Value;
                             outputBytePointer++;
                             break;
                         }

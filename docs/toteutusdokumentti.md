@@ -49,3 +49,9 @@ Huffman -algoritmin osalta aikavaativuus on O(n), koska algoritmi lukee sisään
 ### LZ77
 
 LZ77 -algoritmin osalta aikavaativuus on jotain O(n) ja O(m*n) välillä, jossa m riippuu pakkausikkunan koosta ja kokonaisaikavaativuus siitä kuinka pitkältä pakkausikkunasta löytyy symboolivastaavuus sisäänluettavalle tavulle sekä kuinka pitkä vastaavuus kerralla löydetään.
+
+### Deflate
+
+## LLM:n käyttö
+
+Projektissa ei ole käytetty valmistelun tai toteutuksen osalta laajoja kielimalleja, kuten ChatGPT.
