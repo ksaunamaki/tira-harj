@@ -913,6 +913,10 @@ namespace Tiracompress.Algorithms
                         outputStream.Write(outputBlock, 0, dataInOutputBlock);
                         compressedBytes += (ulong)dataInOutputBlock;
                     }
+
+                    // Asetetaan bittiosoitin tarvittaessa takaisin nollaan
+                    if (bitsInOutputBlockLastByte == 8)
+                        bitsInOutputBlockLastByte = 0;
                 }
 
                 if (dataInInputBlock <= 0)
