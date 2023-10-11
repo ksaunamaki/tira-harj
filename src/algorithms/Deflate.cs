@@ -92,7 +92,8 @@ namespace Tiracompress.Algorithms
         }
 
         private readonly int _windowSize;
-        private readonly int _blockSize;
+        private readonly int _inputBlockSize;
+        private readonly int _outputBlockSize;
 
         /// <summary>
         /// Luo uuden Deflate algoritmin, 32-kilotavun ikkunalla ja 64-kilotavun blokkikoolla.
@@ -102,8 +103,20 @@ namespace Tiracompress.Algorithms
             _windowSize = 32 * 1024;
 
             // Deflatessa puskurit ovat 1-1 sisäänluettavan sekä uloskirjoitettavan (maksimi)
-            // blokin koon suhteen.
-            _blockSize = 64 * 1024;
+            // blokin koon suhteen, seuraavilla huomioilla:
+
+            // - pakkaamaton (BTYPE=0) uloskirjoitettava blokki voi sisältää maksimissaan 65535 tavua (2^16 - 1) dataa.
+            // - täten sisäänluettava blokki on syytä olla myös sama 65535 tavua jotta se voidaan kirjoittaa kokonaisena
+            //   pakkaamattomaan ulosmenevään blokkiin
+            // - pakkaamaton blokki sisältää myös neljä tavua otsakkeita, joten efektiivinen uloskirjoitettavan puskurin koko
+            // on 2 + 4 + 65535 = 65541, koska jokaisen uloskirjoitettavan puskurin alussa on blokin otsakebitit, ja
+            // pakkaamattomassa blokissa otsakebittien jälkeen on aina tyhjät bitit (0-7 kpl) siten että muut otsakkeet
+            // lähtevät tavurajalta (toisin kuin pakatussa blokissa). Joten riippuen mihin kohtaa ensimmäistä tavua blokkiotsakebitit
+            // sjoittuvat edellisen blokin seurauksena (josta viimeinen ei-täysi tavu kopioidaan), täytetään loput bitit nollilla joko
+            // ensimmäisessä tai toisessa tavussa.
+
+            _inputBlockSize = (64 * 1024) - 1;
+            _outputBlockSize = _inputBlockSize + 6;
         }
 
         private static readonly IDictionary<ushort, (ushort, int)> BackreferenceSymbolValues = new Dictionary<ushort, (ushort, int)>();
@@ -411,6 +424,8 @@ namespace Tiracompress.Algorithms
             ref int outputBytePointer,
             ref int outputBitPointer)
         {
+            //Console.Write($"{outputBitPointer} ");
+
             // Montako bittiä vielä mahtuu nykyiseen uloskirjoitettavaan tavuun?
             var remaining = 8 - outputBitPointer;
 
@@ -507,7 +522,7 @@ namespace Tiracompress.Algorithms
             long windowFrontPointer = 0;
             long windowBackPointer = 0;
 
-            outputSymbols = new List<Symbol>(_blockSize);
+            outputSymbols = new List<Symbol>(_inputBlockSize);
             symbolFrequencies = Enumerable.Range(0, 287).ToDictionary(x => (ushort)x, x => 0UL);
 
             while (inputBlockPointer < dataInInputBlock)
@@ -559,20 +574,75 @@ namespace Tiracompress.Algorithms
         {
             var outputBytePointer = 0;
 
+            // Nollataan ensimmäisen tavun käyttämättömät bitit (jotta aiemmasta koodauksesta ei jää bittiroskaa)
+            switch (outputBitPointer)
+            {
+                case 0:
+                    outputBlock[0] = 0;
+                    break;
+                case 1:
+                    outputBlock[0] &= 0x80;
+                    break;
+                case 2:
+                    outputBlock[0] &= 0xC0;
+                    break;
+                case 3:
+                    outputBlock[0] &= 0xE0;
+                    break;
+                case 4:
+                    outputBlock[0] &= 0xF0;
+                    break;
+                case 5:
+                    outputBlock[0] &= 0xF8;
+                    break;
+                case 6:
+                    outputBlock[0] &= 0xFC;
+                    break;
+                case 7:
+                    outputBlock[0] &= 0xFE;
+                    break;
+                default:
+                    break;
+            }
+
             // Kirjoitetaan BFINAL otsake
             _ = OutputBits(0, 1, outputBlock, ref outputBytePointer, ref outputBitPointer);
             // Kirjoitetaan BTYPE otsake (= 00 - no compression)
             _ = OutputBits(0, 2, outputBlock, ref outputBytePointer, ref outputBitPointer);
 
-            // Kopioidaan kaikki sisääntulevat tavut ulosmenevään blokkiin.
-            // Nopea massakopiointi blokkien välillä ei ole mahdollista koska tavut eivät mene tavurajojen mukaan.
-            for (int i = 0; i < dataInInputBlock; i++)
+            if (outputBytePointer == 0 ||
+                outputBitPointer > 0)
             {
-                _ = OutputBits(inputBlock[i], 8, outputBlock, ref outputBytePointer, ref outputBitPointer);
+                // Nollataan loput bitit otsakkeen jälkeen jotta pakkaamaton blokki
+                // alkaa tavurajasta
+                _ = OutputBits(0, 8 - outputBitPointer, outputBlock, ref outputBytePointer, ref outputBitPointer);
             }
 
-            dataInOutputBlock = outputBytePointer + 1;
-            bitsInLastByte = outputBitPointer;
+            // Kirjoitetaan LEN ja NLEN otsakkeet, multi-byte arvot tallennetaan least-significant byte first -järjestyksessä
+            // eli toisinsanoen little-endian muodossa
+            ushort len = (ushort)dataInInputBlock;
+            var lenBytes = BitConverter.GetBytes(len);
+            if (!BitConverter.IsLittleEndian)
+                Array.Reverse(lenBytes);
+
+            Buffer.BlockCopy(lenBytes, 0, outputBlock, outputBytePointer, 2);
+            outputBytePointer += 2;
+
+            // NLEN on yhden komplementti LEN arvosta
+            ushort nlen = (ushort)~dataInInputBlock;
+            lenBytes = BitConverter.GetBytes(nlen);
+            if (!BitConverter.IsLittleEndian)
+                Array.Reverse(lenBytes);
+
+            Buffer.BlockCopy(lenBytes, 0, outputBlock, outputBytePointer, 2);
+            outputBytePointer += 2;
+
+            // Kopioidaan kaikki sisääntulevat tavut ulosmenevään blokkiin.
+            // Mahdollista nopeana massakopiointina, koska operoimme tavurajojen mukaan.
+            Buffer.BlockCopy(inputBlock, 0, outputBlock, outputBytePointer, dataInInputBlock);
+
+            dataInOutputBlock = outputBytePointer + dataInInputBlock;
+            bitsInLastByte = 8;
         }
 
         private bool OutputOver8BitCode(
@@ -660,7 +730,8 @@ namespace Tiracompress.Algorithms
         /// <param name="dataInOutputBlock">Uloskirjoitettavan blokin sisältämä tietomäärä kokonaisina tavuina</param>
         /// <param name="bitsInLastByte">Uloskirjoitettavan blokin viimeisen tietotavun bittien määrä</param>
         /// <param name="headerStartBitOffset">Uloskirjoitettavan blokin ensimmäisen tavun otsakkeen bittiosoitin</param>
-        public void CreateOutputBlock(
+        /// <returns>true mikäli blokki on kompressoitu, false mikäli kompressoimaton</returns>
+        public bool CreateOutputBlock(
             Huffman.Node huffmanRoot,
             IDictionary<ushort, (uint, int)> codeTable,
             IList<Symbol> outputSymbols,
@@ -764,10 +835,12 @@ namespace Tiracompress.Algorithms
                     out dataInOutputBlock,
                     out bitsInLastByte);
 
-                return;
+                return false;
             }
 
             bitsInLastByte = outputBitPointer;
+
+            return true;
         }
 
         /// <summary>
@@ -777,24 +850,26 @@ namespace Tiracompress.Algorithms
         /// <param name="window">Pakkausikkuna</param>
         /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
         /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
-        /// <returns>Tuple (pakattu datan koko, literaalien määrä, viittausten määrä)</returns>
-        public (ulong, ulong, ulong) Encode(
+        /// <returns>Tuple (pakattu datan koko, literaalien määrä, viittausten määrä, kompressoitujen blokkien määrä, kompressoimattomien blokkien määrä)</returns>
+        public (ulong, ulong, ulong, ulong, ulong) Encode(
             byte[] window,
             Stream inputStream,
             Stream outputStream)
         {
             ulong compressedBytes = 0;
 
-            var inputBlock = new byte[_blockSize];
+            var inputBlock = new byte[_inputBlockSize];
             var outputSymbols = default(IList<Symbol>);
             var symbolFrequencies = default(IDictionary<ushort, ulong>);
 
             ulong literals = 0;
             ulong references = 0;
+            ulong compressedBlocks = 0;
+            ulong uncompressedBlocks = 0;
 
             int dataInInputBlock;
 
-            var outputBlock = new byte[_blockSize];
+            var outputBlock = new byte[_outputBlockSize];
             var writeOutputBlock = false;
             var dataInOutputBlock = 0;
             var bitsInOutputBlockLastByte = 0;
@@ -810,7 +885,7 @@ namespace Tiracompress.Algorithms
                 catch
                 {
                     // Lukeminen ei onnistunut!
-                    return (0, 0, 0);
+                    return (0, 0, 0, 0, 0);
                 }
 
                 // Onko edelliseltä kierrokselta ulosmenevää blokkia kirjoitusvalmiina?
@@ -860,7 +935,7 @@ namespace Tiracompress.Algorithms
                     out outputSymbols,
                     out symbolFrequencies))
                 {
-                    return (0, 0, 0);
+                    return (0, 0, 0, 0, 0);
                 }
 
                 // Vaihe 2 - luodaan Huffman puu nähdyistä symboleista
@@ -872,7 +947,7 @@ namespace Tiracompress.Algorithms
                 var codeTable = Huffman.BuildCodeTable(root);
 
                 // Vaihe 3 - koodataan ulosmenevä blokki
-                CreateOutputBlock(
+                if (CreateOutputBlock(
                     root,
                     codeTable,
                     outputSymbols,
@@ -882,13 +957,16 @@ namespace Tiracompress.Algorithms
                     bitsInOutputBlockLastByte,
                     out dataInOutputBlock,
                     out bitsInOutputBlockLastByte,
-                    out headerStartBitOffset);
+                    out headerStartBitOffset))
+                    compressedBlocks++;
+                else
+                    uncompressedBlocks++;
 
                 writeOutputBlock = true;
 
             } while (dataInInputBlock > 0);
 
-            return (compressedBytes, literals, references);
+            return (compressedBytes, literals, references, compressedBlocks, uncompressedBlocks);
         }
 
         /// <summary>
@@ -905,8 +983,9 @@ namespace Tiracompress.Algorithms
         /// </summary>
         /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
         /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
-        /// <returns>Tuple (pakkaamaton datan koko, pakattu datan koko, literaalien määrä, viittausten määrä, koodausaika)</returns>
-        public (ulong, ulong, ulong, ulong, TimeSpan) Encode(
+        /// <returns>Tuple (pakkaamaton datan koko, pakattu datan koko, literaalien määrä, viittausten määrä, 
+        /// kompressoitujen blokkien määrä, kompressoimattomien blokkien määrä, koodausaika)</returns>
+        public (ulong, ulong, ulong, ulong, ulong, ulong, TimeSpan) Encode(
             Stream inputStream,
             Stream outputStream)
         {
@@ -922,11 +1001,15 @@ namespace Tiracompress.Algorithms
             // Luo uusi ikkuna
             var window = new byte[_windowSize];
 
-            (ulong compressedSize, ulong literals, ulong references) = Encode(window, inputStream, outputStream);
+            (ulong compressedSize,
+             ulong literals,
+             ulong references,
+             ulong compressedBlocks,
+             ulong uncompressedBlocks) = Encode(window, inputStream, outputStream);
 
             var elapsed = timing.Elapsed;
 
-            return (inputSize, compressedSize, literals, references, elapsed);
+            return (inputSize, compressedSize, literals, references, compressedBlocks, uncompressedBlocks, elapsed);
         }
     }
 }

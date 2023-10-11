@@ -15,9 +15,14 @@ namespace Tiracompress
 
             Console.WriteLine();
             Console.Write("Compressing data... ");
-            (ulong uncompressed, ulong compressed, ulong literals, ulong references, TimeSpan timing) = deflate.Encode(
-                                                        input,
-                                                        output);
+
+            (ulong uncompressed,
+             ulong compressed,
+             ulong literals,
+             ulong references,
+             ulong compressedBlocks,
+             ulong uncompressedBlocks,
+             TimeSpan timing) = deflate.Encode(input, output);
 
             if (uncompressed == 0)
             {
@@ -43,7 +48,7 @@ namespace Tiracompress
             }
 
             Console.WriteLine($"Encoding took: {timing:c}");
-            Console.WriteLine($"Input data size: {uncompressed} bytes, literals encoded = {literals}, references encoded = {references}, output data size: {compressed} bytes = {reduction:P2} reduction");
+            Console.WriteLine($"Input data size: {uncompressed} bytes, literals encoded = {literals}, references encoded = {references}, compressed blocks created = {compressedBlocks}, uncompressed blocks created = {uncompressedBlocks}, output data size: {compressed} bytes = {reduction:P2} reduction");
 
             return 0;
         }
