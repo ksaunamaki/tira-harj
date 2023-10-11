@@ -3,5 +3,5 @@ obj/
 bin/
 coverage.xml
 coveragereport/
-
-
+src/.idea/
+src/.vscode/
