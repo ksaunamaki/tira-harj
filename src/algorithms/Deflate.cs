@@ -836,6 +836,59 @@ namespace Tiracompress.Algorithms
         }
 
         /// <summary>
+        /// Uudelleenlaskee Deflate algoritmin edellyttämien lisäsääntöjen mukaiset koodaukset,
+        /// Huffman-luokan generoimaan koodaustaulukkoon.
+        /// 
+        /// Optimaalisempi toteutus olisi voinut suoraan tämän metodin kautta luoda taulukon
+        /// Huffman puusta rekursiolla, mutta käytämme nyt valmiiksi toisen metodin laskemaan
+        /// taulukkoa.
+        /// </summary>
+        /// <param name="codeTable">Koodaustaulukko joka muokataan</param>
+        public void RecalculateHuffmanCodeTable(IDictionary<ushort, (uint, int)> codeTable)
+        {
+            // Per 3.2.2. säännöt RFC1951:ssä (https://datatracker.ietf.org/doc/html/rfc1951)
+
+            // Huffman koodattu bittijono saa olla enintään 15 bittiä
+            const int MAX_BITS = 15;
+
+            uint code = 0;
+            var bl_count = new ushort[MAX_BITS + 1];
+            var next_code = new uint[MAX_BITS + 1];
+            ushort max_symbol = 0;
+
+            // Vaihe 1
+            foreach ((ushort symbol, (uint _, int length)) in codeTable)
+            {
+                bl_count[length]++;
+                if (symbol > max_symbol)
+                    max_symbol = symbol;
+            }
+
+            // Vaihde 2
+            bl_count[0] = 0;
+            for (var bits = 1; bits <= MAX_BITS; bits++)
+            {
+                code = (code + bl_count[bits - 1]) << 1;
+                next_code[bits] = code;
+            }
+
+            // Vaihe 3
+            for (ushort n = 0; n <= max_symbol; n++)
+            {
+                if (!codeTable.ContainsKey(n))
+                    continue;
+
+                var len = codeTable[n].Item2;
+                if (len != 0)
+                {
+                    codeTable[n] = (next_code[len], len);
+                    //Console.WriteLine($"codeTable[{n:X2}] = {Convert.ToString(next_code[len],2)}, len = {len}");
+                    next_code[len]++;
+                }
+            }
+        }
+
+        /// <summary>
         /// Pakkaa sisääntulevan tietovirran ulosmenevään tietovirtaan.
         /// 
         /// </summary>
@@ -941,6 +994,9 @@ namespace Tiracompress.Algorithms
                     .OrderBy(pair => pair.Value));
 
                 var codeTable = Huffman.BuildCodeTable(root);
+
+                // Lasketaan bittijonot uudestaan käyttäen Deflate-algoritmin lisäsääntöjä koodistolle
+                RecalculateHuffmanCodeTable(codeTable);
 
                 // Vaihe 3 - koodataan ulosmenevä blokki
                 if (CreateOutputBlock(
