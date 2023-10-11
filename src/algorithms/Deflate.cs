@@ -65,11 +65,6 @@ namespace Tiracompress.Algorithms
             public ushort Length { get; }
 
             /// <summary>
-            /// Seuraava literaalitavu viittauksen jälkeen
-            /// </summary>
-            public byte Next { get; }
-
-            /// <summary>
             /// Montako extrabittiä symbolin jälkeen tulee tuottaa pituutta varten
             /// </summary>
             public ushort ExtraBitsRequired { get; set; }
@@ -79,15 +74,12 @@ namespace Tiracompress.Algorithms
             /// </summary>
             /// <param name="distance"></param>
             /// <param name="length"></param>
-            /// <param name="next"></param>
             public Backreference(
                 ushort distance,
-                ushort length,
-                byte next)
+                ushort length)
             {
                 Distance = distance;
                 Length = length;
-                Next = next;
             }
         }
 
@@ -192,6 +184,7 @@ namespace Tiracompress.Algorithms
         /// 
         /// Etsintä EI ulotu ikkunassa mahdollisiin aiempiin vastaavuuksiin vaan vain ensimmäinen
         /// vastaavuus palautetaan (vaikka aiemmin olisi pidempiä vastaavuuksia!)
+        /// 
         /// </summary>
         /// <param name="inputBlock">Käsiteltävä sisääntuleva blokki</param>
         /// <param name="inputPointer">Sisääntulevan blokin seuraavan tavun osoitin</param>
@@ -235,12 +228,12 @@ namespace Tiracompress.Algorithms
             {
                 distance_actual++;
 
-                if (window[i % _windowSize] != nextByte || distance_actual <= MinBackreferenceLength)
+                if (window[i % _windowSize] != nextByte || distance_actual < MinBackreferenceLength)
                 {
                     // Tavujonon alkukohtaa ei vielä löytynyt, jatka taaksepäin TAI etäisyys ei ylitä
                     // minimiviittauspituutta. Jälkimmäinen ehto lisätty jotta vältytään lisäämästä
                     // uusia tavuja ikkunaan (ja siirtämään sen rajoja) ennen kuin osoittautuu että pituus ylittää
-                    // minimipituusvaatimuksen mukaisen length=3 (+yksi edge-case tilanteen hoitamiseksi, katso myöhemmin selitys).
+                    // minimipituusvaatimuksen mukaisen length=3.
 
                     if (distance_actual > max_distance)
                     {
@@ -272,26 +265,14 @@ namespace Tiracompress.Algorithms
                         nextByte = inputBlock[inputPointer];
                         inputPointer++;
 
-                        if (length <= MinBackreferenceLength)
-                        {
-                            pendingToAddToWindow.Add(nextByte);
-                        }
-                        else
-                        {
-                            Lz77.AddInputToWindow(
-                                window,
-                                _windowSize,
-                                nextByte,
-                                ref windowFrontPointer,
-                                ref windowBackPointer);
-                        }
-
                         if (window[j % _windowSize] != nextByte)
                         {
                             // Seuraava tavu ei enää löytynyt ikkunasta
+
                             if (length < MinBackreferenceLength)
                             {
-                                // Palautetaan haku takaisin edellisen löytökohdan kohdalle
+                                // Vastaavuus ei täytä minimipituusehtoa,
+                                // palautetaan haku takaisin edellisen löytökohdan kohdalle
                                 restoreBackscan = true;
                                 nextByte = restoreNextByte;
                                 inputPointer -= length;
@@ -309,27 +290,45 @@ namespace Tiracompress.Algorithms
                                 break;
                             }
 
+                            // Koska viimeisin luettu tavu ei enää vastannut, palautetaan sisäänluku alkamaan siitä
+                            // seuraavalla skannauksella
+                            inputPointer -= 1;
+
                             break;
+                        }
+
+                        if (length < MinBackreferenceLength)
+                        {
+                            // Pidetään tavuja puskurissa mikäli joudumme palaamaan takaisin skannaukseen,
+                            // muutoin ikkunaan on lisätty tavuja joita siellä ei kuulu olla!
+                            pendingToAddToWindow.Add(nextByte);
+                        }
+                        else
+                        {
+                            Lz77.AddInputToWindow(
+                                    window,
+                                    _windowSize,
+                                    nextByte,
+                                    ref windowFrontPointer,
+                                    ref windowBackPointer);
                         }
 
                         if (length == MaxBackreferenceLength)
                         {
-                            // Maksimipituus täyttyi
+                            // Maksimipituusehto täyttyi
                             break;
                         }
                     }
                     else
                     {
-                        // Syöte loppui, vähennä pituudesta yksi jotta viimeinen luettu tavu jää omaksi
-                        // viitteekseen
-                        length--;
+                        // Syöte loppui
 
                         if (length < 3)
                         {
                             // Palautetaan haku takaisin edellisen löytökohdan kohdalle
                             restoreBackscan = true;
                             nextByte = restoreNextByte;
-                            inputPointer -= length;
+                            inputPointer -= length - 1;
                             pendingToAddToWindow.Clear();
 
                             length = 0;
@@ -344,14 +343,10 @@ namespace Tiracompress.Algorithms
 
                     length++;
 
-                    if (length > MinBackreferenceLength && pendingToAddToWindow.Count > 0)
+                    if (pendingToAddToWindow.Count > 0 &&
+                        length >= MinBackreferenceLength)
                     {
                         // Tyhjennetään jono ikkunaan, tämä viittaus kelpaa minimipituuden perusteella
-
-                        // Ikkunaan tyhjennetään minimipituus+1 kohdalla, jotta edge-case jossa sisääntuleva blokki
-                        // loppuu, ja pituus on sillä hetkellä tasan kolme, ei tuota viittausta jossa pituus tippu kahteen
-                        // koska viittauksessa pitää aina olla mukana vielä seuraava tavu = sisääntulevan blokin viimeinen
-                        // tavu.
                         foreach (byte b in pendingToAddToWindow)
                         {
                             Lz77.AddInputToWindow(
@@ -376,22 +371,8 @@ namespace Tiracompress.Algorithms
 
             if (distance > 0)
             {
-                if (pendingToAddToWindow.Count > 0)
-                {
-                    // Pituus tasan kolme, joten ikkunajonoa ei luupissa ehditty tyhjentää
-                    foreach (byte b in pendingToAddToWindow)
-                    {
-                        Lz77.AddInputToWindow(
-                            window,
-                            _windowSize,
-                            b,
-                            ref windowFrontPointer,
-                            ref windowBackPointer);
-                    }
-                }
-
                 // Palauta takaisinpäinviittaus
-                return new Backreference(distance, length, nextByte);
+                return new Backreference(distance, length);
             }
 
             // Lisää ainoa luettu tavu ikkunaan
@@ -401,7 +382,6 @@ namespace Tiracompress.Algorithms
                 nextByte,
                 ref windowFrontPointer,
                 ref windowBackPointer);
-
 
             // Palauta literaali symbooli
             return new Literal(nextByte);
@@ -558,6 +538,7 @@ namespace Tiracompress.Algorithms
                 }
             }
 
+            // Loppuun end of block symboli
             outputSymbols.Add(new EndOfBlock());
             symbolFrequencies[256]++;
 
@@ -762,14 +743,25 @@ namespace Tiracompress.Algorithms
             // TODO: muodostetaan Code Length sekvenssien Huffman arvot
 
 
-            // TODO: koodataan (koodatut) Literal/Length codet tähän väliin
+            // Kirjoitetaan Literal/Length codejen määrä (HLIT) - 257, viidellä bitillä
+            byte hlit = (byte)(codeTable.Keys.Count(code => code is >= 257 and <= 286) - 257);
+            _ = OutputBits(hlit, 5, outputBlock, ref outputBytePointer, ref outputBitPointer);
 
-            // TODO: koodataan Distance codet tähän väliin
+            // TODO: Kirjoitetaan Distance codejen määrä (HDIST) - 1, viidellä bitillä
+            byte hdist = 0;
+            _ = OutputBits(hdist, 5, outputBlock, ref outputBytePointer, ref outputBitPointer);
 
-            // TODO: koodataan Code Length codet tähän väliin
+            // TODO: Kirjoitetaan Code Length codejen määrä (HCLEN) - 4, neljällä bitillä
+            byte hclen = 0;
+            _ = OutputBits(hclen, 4, outputBlock, ref outputBytePointer, ref outputBitPointer);
 
+            // TODO: koodataan Code Length codet tähän väliin, (HCLEN + 4) x 3 bittiä jokainen
 
-            // Koodataan symbolit
+            // TODO: koodataan HLIT + 257 kpl code lengths Literal/Length symboleille tähän väliin
+
+            // TODO: koodataan HDIST + 1 kpl code lengths Distance symboleille tähän väliin
+
+            // Koodataan symbolit + EOB
 
             var reEncodeToUncompressed = false;
 

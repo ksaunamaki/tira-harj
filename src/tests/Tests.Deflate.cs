@@ -57,6 +57,39 @@ public class DeflateTests
     }
 
     [Fact]
+    public void TestInputPointerIncreasesCorrectlyAfterMatch()
+    {
+        var deflate = new Deflate();
+
+        foreach (var inputBlock in new[] { _testinput_1, _testinput_2, _testinput_3 })
+        {
+            byte[] window = new byte[32*1024];
+
+            long windowFrontPointer = 0;
+            long windowBackPointer = 0;
+
+            int lastInputPointer = 0;
+            int inputPointer = 0;
+
+            var symbol = default(Deflate.Symbol);
+
+            while ((symbol = deflate.LzScanWindowForMatch(inputBlock, ref inputPointer, inputBlock.Length, window, ref windowFrontPointer, ref windowBackPointer)) != null)
+            {
+                if (symbol is Deflate.Backreference br)
+                {
+                    Assert.Equal(lastInputPointer + br.Length, inputPointer);
+                } else if (symbol is Deflate.Literal lit)
+                {
+                    Assert.Equal(lastInputPointer + 1, inputPointer);
+                }
+
+                lastInputPointer = inputPointer;
+            }
+        }
+    }
+
+
+    [Fact]
     public void TestEncodingDoesNotOverflow()
     {
         var deflate = new Deflate();
@@ -85,9 +118,15 @@ public class DeflateTests
         using var inputStream = new MemoryStream(_testinput_1);
         using var outputStream = new MemoryStream();
 
-        (ulong uncompressed, ulong compressed, ulong literals, ulong references, TimeSpan timing) = deflate.Encode(inputStream, outputStream);
+        (ulong uncompressed,
+         ulong compressed,
+         ulong literals,
+         ulong references,
+         ulong compressedBlocks,
+         ulong uncompressedBlocks,
+         TimeSpan timing) = deflate.Encode(inputStream, outputStream);
 
         Assert.NotEqual(0UL, literals);
-        Assert.Equal(0UL, references);
+        Assert.NotEqual(0UL, references);
     }
 }
