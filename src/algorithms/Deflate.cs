@@ -404,8 +404,6 @@ namespace Tiracompress.Algorithms
             ref int outputBytePointer,
             ref int outputBitPointer)
         {
-            //Console.Write($"{outputBitPointer} ");
-
             // Montako bittiä vielä mahtuu nykyiseen uloskirjoitettavaan tavuun?
             var remaining = 8 - outputBitPointer;
 
@@ -476,7 +474,6 @@ namespace Tiracompress.Algorithms
 
             return true;
         }
-
 
         /// <summary>
         /// Koodataan sisääntuleva blokki symboleiksi
@@ -864,7 +861,7 @@ namespace Tiracompress.Algorithms
                     max_symbol = symbol;
             }
 
-            // Vaihde 2
+            // Vaihe 2
             bl_count[0] = 0;
             for (var bits = 1; bits <= MAX_BITS; bits++)
             {
