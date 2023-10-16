@@ -451,4 +451,108 @@ public class HuffmanTests
             Assert.Equal(expectedByte, (byte)b);
         }
     }
+
+    [Fact]
+    public void TestEncodeDecodeRoundtrip_SilesiaWebster()
+    {
+        using var inputStream = File.OpenRead("./silesia/webster");
+        var compressedFile = Path.GetTempFileName();
+        using var compressedStream = File.Create(compressedFile);
+
+        var huffman = new Huffman();
+        var compress_results = huffman.Encode(inputStream, compressedStream);
+
+        compressedStream.Flush();
+
+        Assert.NotEqual(0, compressedStream.Length);
+
+        compressedStream.Position = 0;
+
+        var uncompressedFile = Path.GetTempFileName();
+        using var uncompressedStream = File.Create(uncompressedFile);
+
+        huffman = new Huffman();
+
+        var uncompress_results = huffman.Decode(compressedStream, uncompressedStream);
+
+        uncompressedStream.Flush();
+
+        Assert.Equal(inputStream.Length, uncompressedStream.Length);
+
+        // Vertaillaan alkuperäinen ja takaisinpurettu tiedosto
+
+        inputStream.Position = 0;
+        uncompressedStream.Position = 0;
+
+        var buffer1 = new byte[1 * 1024 * 1024];
+        var buffer2 = new byte[1 * 1024 * 1024];
+        var read1 = 0;
+        var read2 = 0;
+
+        do
+        {
+            read1 = inputStream.Read(buffer1, 0, buffer1.Length);
+            read2 = uncompressedStream.Read(buffer2, 0, buffer2.Length);
+
+            Assert.Equal(read1, read2);
+
+            for (int i = 0; i < read1; i++)
+            {
+                Assert.Equal(buffer1[i], buffer2[i]);
+            }
+
+        } while (read1 > 0);
+    }
+
+    [Fact]
+    public void TestEncodeDecodeRoundtrip_SilesiaXRay()
+    {
+        using var inputStream = File.OpenRead("./silesia/x-ray");
+        var compressedFile = Path.GetTempFileName();
+        using var compressedStream = File.Create(compressedFile);
+
+        var huffman = new Huffman();
+        var compress_results = huffman.Encode(inputStream, compressedStream);
+
+        compressedStream.Flush();
+
+        Assert.NotEqual(0, compressedStream.Length);
+
+        compressedStream.Position = 0;
+
+        var uncompressedFile = Path.GetTempFileName();
+        using var uncompressedStream = File.Create(uncompressedFile);
+
+        huffman = new Huffman();
+
+        var uncompress_results = huffman.Decode(compressedStream, uncompressedStream);
+
+        uncompressedStream.Flush();
+
+        Assert.Equal(inputStream.Length, uncompressedStream.Length);
+
+        // Vertaillaan alkuperäinen ja takaisinpurettu tiedosto
+
+        inputStream.Position = 0;
+        uncompressedStream.Position = 0;
+
+        var buffer1 = new byte[1 * 1024 * 1024];
+        var buffer2 = new byte[1 * 1024 * 1024];
+        var read1 = 0;
+        var read2 = 0;
+
+        do
+        {
+            read1 = inputStream.Read(buffer1, 0, buffer1.Length);
+            read2 = uncompressedStream.Read(buffer2, 0, buffer2.Length);
+
+            Assert.Equal(read1, read2);
+
+            for (int i = 0; i < read1; i++)
+            {
+                Assert.Equal(buffer1[i], buffer2[i]);
+            }
+
+        } while (read1 > 0);
+    }
 }

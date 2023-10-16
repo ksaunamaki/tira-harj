@@ -526,6 +526,46 @@ namespace Tiracompress.Algorithms
         }
 
         /// <summary>
+        /// Pakkaa sisääntulevan tietovirran ulosmenevään tietovirtaan.
+        /// 
+        /// Tiedostorakenne:
+        /// -- Pakkaamattoman datan koko tavuina (64-bittinen etumerkitön kokonaisluku) --
+        /// -- HUFFMAN-PUU --
+        /// -- Huffman-puun serialisoinnin lopetusmerkki (1-tavu, 0x03)
+        /// -- COMPRESSED DATA --
+        /// </summary>
+        /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
+        /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
+        /// <returns>Tuple (pakkaamaton datan koko, pakattu datan koko, koodausaika)</returns>
+        public (ulong, ulong, TimeSpan) Encode(
+            Stream inputStream,
+            Stream outputStream)
+        {
+            // Aseta sisääntulon aloituskohta
+            inputStream.Position = 0;
+
+            // Muodostetaan sisääntulevasta tietovirrasta symbolien esiintymistiheydet
+            var freq = BuildSymbolFrequencies(inputStream);
+
+            if (freq.Count == 0)
+            {
+                return (0, 0, TimeSpan.Zero);
+            }
+
+            // Muodostetaan Huffman-puu
+            var root = BuildHuffmanTree(freq);
+
+            // Käytetään puuta rakentamaan kooditaulukko
+            var codeTable = BuildCodeTable(root);
+
+            return Encode(
+                root,
+                codeTable,
+                inputStream,
+                outputStream);
+        }
+
+        /// <summary>
         /// Deserialisoi Huffman-symbolipuun sisääntulevasta tietovirrasta
         /// </summary>
         /// <param name="inputStream">Sisääntuleva tietovirta</param>

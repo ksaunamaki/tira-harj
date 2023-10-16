@@ -29,4 +29,15 @@
     <ProjectReference Include="..\algorithms\algorithms.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Remove="silesia\webster" />
+    <Content Include="silesia\webster">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <None Remove="silesia\x-ray" />
+    <Content Include="silesia\x-ray">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
