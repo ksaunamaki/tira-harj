@@ -38,7 +38,7 @@ namespace Tiracompress
             var inputFile = GetParameterValue(lookup, "input");
             var outputFile = GetParameterValue(lookup, "output");
             var mode = GetParameterValue(lookup, "mode", "compress", "uncompress");
-            var algorithm = GetParameterValue(lookup, "algorithm", "huffman", "lz77", "deflate");
+            var algorithm = GetParameterValue(lookup, "algorithm", "huffman", "lz77");
 
             return (inputFile, outputFile, mode, algorithm);
         }
@@ -46,7 +46,7 @@ namespace Tiracompress
         private static void PrintUsage()
         {
             Console.WriteLine("Usage:");
-            Console.WriteLine("--input:<path_to_file> --output:<path_to_file> --mode:[compress|uncompress] --algorithm:[huffman|lz77|deflate]");
+            Console.WriteLine("--input:<path_to_file> --output:<path_to_file> --mode:[compress|uncompress] --algorithm:[huffman|lz77]");
         }
 
         public static int Main(string[] args)
@@ -84,8 +84,6 @@ namespace Tiracompress
                     return RunHuffmanAlgorithm(inputFile, outputFile, mode);
                 case "lz77":
                     return RunLz77Algorithm(inputFile, outputFile, mode);
-                case "deflate":
-                    return RunDeflateAlgorithm(inputFile, outputFile, mode);
                 default:
                     break;
             }

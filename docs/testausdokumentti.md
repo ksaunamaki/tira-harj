@@ -58,4 +58,32 @@ Rivi- ja haaraumakattavuuden totaaleja tiputtavaa hieman automaattitesteissä mu
 
 ## Suorituskykytestaus
 
-Ohjelmistoa ja pakkausalgoritmien toteutuksen tehokkuutta ei vielä ole testattu laajalla aineistolla, lähinnä manuaalitestaus on keskittynyt testaamaan että toteutetut algoritmit tuottavat identtisen lopputuleman lähdeaineistoon roundtrip-testatessa pakkausta ja syntyneen tiedoston takaisin purkua.
+Suorituskykyä on manuaalisesti testattu toteutettujen algoritmien osalta käyttäen edellämainittua Silesia corpus testimateriaalia, joissa pakattavana on yksittäisiä tiedostoja.
+
+Operaatioon (pakkaus ja purku) kulunut aika testaamisessa on mitattu ohjelman sisäisesti mittaaman ja raportoiman algoritmin suoritusaikana. Lopuksi takaisinpurettun tiedoston oikeellisuutta on vertailtu alkuperäiseen syötetiedostoon käyttäen macOS:n komentorivityökalua cmp, joka vertaa tiedostoja tavutasolla toisiinsa.
+
+Kaikki suorituskykytestaaminen on suoritettu MacBook Air, vuoden 2022 mallilla (M2 prosessori ja SSD levy). 
+
+### Huffman
+
+| Testitiedosto | Pakkausaika | Pakattu koko | Purkamisaika |
+| ----- | ------------- | ------ | ------ |
+| dickens (Tekstitiedosto, 10192446 tavua) | 0.321 sec | 5825921 tavua (~57% alkuperäisestä) | 0.648 sec |
+| mr (Kuvatiedosto, DICOM muodossa, 9970564 tavua) | 0.321 sec | 4622875 tavua (~46% alkuperäisestä) | 0.493 sec |
+| nci (Tekstitiedosto, 33553445 tavua) | 0.806 sec | 10223905 tavua (~30% alkuperäisestä) | 1.131 sec |
+| reymont (PDF-tiedosto, 6627202 tavua) | 0.235 sec | 4031295 tavua (~60% alkuperäisestä) | 0.428 sec |
+| mozilla 2/bloaturls.txt (Tekstitiedosto, 217 tavua) | 0.0003 sec | 115 tavua (~92% alkuperäisestä) | 0.0004 sec |
+
+Perustuen edellämainittuihin testiaineistoihin, Huffman-algoritmin toteutuksen keskimääräinen pakkausnopeus on noin 30 megatavua sekunnissa ja purkunopeus hieman hitaampi. Pienemmän purkunopeuden selitys todennäköisimmin on hieman epätehokas tapa, jolla Huffman-luokassa suoritetaan koodatun bittiesityksen muunto halutuksi symboliksi kulkemalla Huffman puurakennetta alas kunnes haluttu lehtisolmu löytyy. Käyttämällä jotain muuta rakennetta bittijonojen täsmäytykseen luettaessa sisääntulevasta pakatusta datasta bittejä purkunopeus olisi mahdollisesti tehokkaampi.
+
+### LZ77
+
+| Testitiedosto | Pakkausaika | Pakattu koko | Purkamisaika |
+| ----- | ------------- | ------ | ------ |
+| dickens (Tekstitiedosto, 10192446 tavua) | 2.689 sec | 18087973 tavua (~177% alkuperäisestä) | 0.105 sec |
+| mr (Kuvatiedosto, DICOM muodossa, 9970564 tavua) | 0.440 sec | 13369609 tavua (~134% alkuperäisestä) | 0.092 sec |
+| nci (Tekstitiedosto, 33553445 tavua) | 5.867 sec | 25642301 tavua (~76% alkuperäisestä) | 0.308 sec |
+| reymont (PDF-tiedosto, 6627202 tavua) | 1.791 sec | 10076298 tavua (~152% alkuperäisestä) | 0.073 sec |
+| mozilla 2/bloaturls.txt (Tekstitiedosto, 217 tavua) | 0.0009 sec | 222 tavua (~102% alkuperäisestä) | 0.0005 sec |
+
+Perustuen edellämainittuihin testiaineistoihin, Huffman-algoritmin toteutuksen keskimääräinen pakkausnopeus on vain noin 3,5 megatavua sekunnissa mutta purkunopeus huomattavasti nopeampi. Tilankäytön osalta algoritmi, luultavimmin johtuen [toteutusdokumentissa](./toteutusdokumentti.md) mainitusta yksinkertaisesta takaisinpäinviittausten etsimisestä joka ei huomioi minimisymbolipituuksia, LZ77 pakatut tiedostot nci -testitiedostoa lukuunottamatta suoritti erittäin huonosti. Jokainen muu tiedosto kasvoi pakatussa muodossa kooltaan, jopa yli puolitoistakertaisesti.

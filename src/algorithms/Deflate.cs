@@ -683,22 +683,10 @@ namespace Tiracompress.Algorithms
             return true;
         }
 
-        private bool OutputBackreference(
-            Backreference br,
-            byte[] outputBlock,
-            IDictionary<ushort, (uint, int)> codeTable,
-            ref int outputBytePointer,
-            ref int outputBitPointer)
-        {
-            // TODO
-            return false;
-        }
-
         /// <summary>
         /// Muodostetaan uloskirjoitettava blokki perustuen koodattuihin symboleihin. Mikäli koodattu blokki
         /// kasvaa isommaksi kuin alkuperäinen sisääntuleva blokki, palautetaan koodamaton blokki.
         /// </summary>
-        /// <param name="huffmanRoot">Huffman-symbolipuun juurisolmu</param>
         /// <param name="codeTable">Huffman koodaustaulukko</param>
         /// <param name="outputSymbols">Koodattavat symbolit</param>
         /// <param name="inputBlock">Sisääntuleva blokki</param>
@@ -710,7 +698,6 @@ namespace Tiracompress.Algorithms
         /// <param name="headerStartBitOffset">Uloskirjoitettavan blokin ensimmäisen tavun otsakkeen bittiosoitin</param>
         /// <returns>true mikäli blokki on kompressoitu, false mikäli kompressoimaton</returns>
         public bool CreateOutputBlock(
-            Huffman.Node huffmanRoot,
             IDictionary<ushort, (uint, int)> codeTable,
             IList<Symbol> outputSymbols,
             byte[] inputBlock,
@@ -783,6 +770,7 @@ namespace Tiracompress.Algorithms
 
                 if (symbol is Backreference br)
                 {
+                    /*
                     if (!OutputBackreference(
                         br,
                         outputBlock,
@@ -794,8 +782,11 @@ namespace Tiracompress.Algorithms
                         reEncodeToUncompressed = true;
                         break;
                     }
+                    */
 
-                    continue;
+                    // Ei toteutettu, koodataan pakkaamattomana
+                    reEncodeToUncompressed = true;
+                    break;
                 }
 
                 if (symbol is EndOfBlock eob)
@@ -997,7 +988,6 @@ namespace Tiracompress.Algorithms
 
                 // Vaihe 3 - koodataan ulosmenevä blokki
                 if (CreateOutputBlock(
-                    root,
                     codeTable,
                     outputSymbols,
                     inputBlock,

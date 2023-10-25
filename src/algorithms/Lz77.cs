@@ -187,17 +187,17 @@ namespace Tiracompress.Algorithms
                             ref windowFrontPointer,
                             ref windowBackPointer);
 
+                        nextByte = nextByte_tmp;
+
                         if (window[j % _windowMaxSize] != nextByte_tmp.Value)
                         {
                             // Seuraava tavu ei enää löytynyt ikkunasta
-                            nextByte = nextByte_tmp;
                             break;
                         }
 
                         if (length == byte.MaxValue)
                         {
                             // Maksimipituus täyttyi
-                            nextByte = nextByte_tmp;
                             break;
                         }
                     }
