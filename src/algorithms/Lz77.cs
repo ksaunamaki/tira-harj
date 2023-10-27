@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.VisualBasic;
 
 namespace Tiracompress.Algorithms
 {
@@ -7,6 +8,33 @@ namespace Tiracompress.Algorithms
     /// </summary>
     public class Lz77
     {
+        /// <summary>
+        /// Pakkausikkunan oletus-koko (4 kilotavua)
+        /// </summary>
+        private const int DefaultBufferSize = 4 * 1024;
+
+        /// <summary>
+        /// Minimipituus vastaavuutta mikä kelpuutetaan pakkausikkunasta
+        /// </summary>
+        private const int MinMatchLength = 3;
+
+        /// <summary>
+        /// Minimipituus vastaavuutta mikä kelpuutetaan pakkausikkunasta ilman että
+        /// yritetään jatkaa vielä pidemmän vastaavuuden etsimistä
+        /// </summary>
+        private const int MinAcceptableLength = 5;
+
+        /// <summary>
+        /// Maksimimäärä vastaavuuksien etsimisiä pakkausikkunasta kun on löytynyt jo
+        /// minimipituuden täyttäviä vastaavuuksia.
+        /// </summary>
+        private const int MaxMatchRetries = 5;
+
+        /// <summary>
+        /// Maksimipituus mikä kelpuutetaan pakkausikkunasta
+        /// </summary>
+        private const int MaxMatchLength = 255;
+
         /// <summary>
         /// Kirjoita valmis uloskirjoituspuskuri ulosmenevään tietovirtaan
         /// </summary>
@@ -25,26 +53,47 @@ namespace Tiracompress.Algorithms
         }
 
         private readonly int _windowMaxSize;
+        private readonly int _bitsForDistance;
+        private readonly int _bitsForLength;
         private readonly int _inputBufferSize;
         private readonly int _outputBufferSize;
 
         /// <summary>
         /// Luo uuden LZ77 algoritmin, optionaalisesti oletuksesta poikkeavalla ikkunan koolla ja/tai puskurien koolla.
         /// </summary>
-        /// <param name="windowSize">Ikkunan koko tavuina (oletus: 32 kilotavua)</param>
-        /// <param name="inputBufferSize">Käytettävä sisääntulevan tietovirran puskurin koko (oletus: 64 kilotavua)</param>
-        /// <param name="outputBufferSize">Käytettävä ulosmenevän tietovirran puskurin koko (oletus: 64 kilotavua)</param>
+        /// <param name="windowSize">Ikkunan koko tavuina (käytetään oletuskokoa mikäli ei asetettu, maksimi 64 kilotavua)</param>
+        /// <param name="inputBufferSize">Käytettävä sisääntulevan tietovirran puskurin koko (oletus: 128 kilotavua)</param>
+        /// <param name="outputBufferSize">Käytettävä ulosmenevän tietovirran puskurin koko (oletus: 128 kilotavua)</param>
         public Lz77(
             int? windowSize = null,
             int? inputBufferSize = null,
             int? outputBufferSize = null)
         {
-            _windowMaxSize = windowSize ?? 32 * 1024;
+            _windowMaxSize = Math.Max(0, Math.Min(windowSize ?? DefaultBufferSize, DefaultBufferSize));
+
+            // Lasketaan montako bittiä tarvitaan viittauksen (maksimi)etäisyyden esittämiseksi bittipakatussa muodossa,
+            // pohjautuen ikkunan kokoon
+            var left = _windowMaxSize;
+
+            while (left > 0)
+            {
+                left /= 2;
+                _bitsForDistance++;
+            }
+
+            // Lasketaan montako bittiä tarvitaan viittauksen (maksimi)pituuden esittämiseksi bittipakatussa muodossa
+            left = MaxMatchLength;
+
+            while (left > 0)
+            {
+                left /= 2;
+                _bitsForLength++;
+            }
 
             // Puskurien koko vaikuttaa levy-I/O:n määrään (l. I/O:n tehokkuuteen) koska kaikki luku ja kirjoitus
             // tietovirtoihin tehdään puskurien kautta
-            _inputBufferSize = inputBufferSize ?? 64 * 1024;
-            _outputBufferSize = outputBufferSize ?? 64 * 1024;
+            _inputBufferSize = inputBufferSize ?? 128 * 1024;
+            _outputBufferSize = outputBufferSize ?? 128 * 1024;
         }
 
         /// <summary>
@@ -97,7 +146,6 @@ namespace Tiracompress.Algorithms
             window[windowBackPointer % windowSize] = input;
 
             // Siirrä loogisia ikkunan aloitus ja lopetusrajoja
-
             if ((int)(windowBackPointer - windowFrontPointer) < windowSize)
             {
                 // Ikkuna ei ole vielä kasvanut maksimiin
@@ -110,126 +158,221 @@ namespace Tiracompress.Algorithms
             }
         }
 
+        private bool ScanWindowForward(
+            long start,
+            byte[] inputBlock,
+            int inputPointer,
+            int dataInBlock,
+            byte[] window,
+            byte[] temporaryWindow,
+            long windowFrontPointer,
+            long windowBackPointer,
+            out ushort matchLength,
+            out byte? nextUnmatchedByte)
+        {
+            nextUnmatchedByte = null;
+            matchLength = 1;
+            var windowToScan = window;
+            var windowsSwapped = false;
+
+            var originalInputStart = inputPointer - 1;
+
+            for (var j = start; j < windowBackPointer; j++)
+            {
+                if (inputPointer >= dataInBlock)
+                {
+                    // Sisäänluettava syöte loppui
+                    if (matchLength > 1)
+                    {
+                        // Vähennä yksi jotta viimeinen tavu palautetaan omanaan
+                        matchLength--;
+                    }
+
+                    break;
+                }
+
+                nextUnmatchedByte = inputBlock[inputPointer];
+
+                if (windowsSwapped)
+                {
+                    // Lisätään syötettä ikkunaan
+                    AddInputToWindow(
+                        windowToScan,
+                        _windowMaxSize,
+                        nextUnmatchedByte.Value,
+                        ref windowFrontPointer,
+                        ref windowBackPointer);
+                }
+
+                if (windowToScan[j % _windowMaxSize] != nextUnmatchedByte.Value)
+                {
+                    // Seuraava sisääntuleva tavu ei vastaa ikkunan seuraavaa tavua
+                    break;
+                }
+
+                if (j == windowBackPointer - 1 && !windowsSwapped)
+                {
+                    // Alunperäisen ikkunan takaraja saavutettu, vaihda tilapäiseen ikkunaan ja
+                    // lisää kaikki tähänastiset luetut tavut sinne jotta voimme jatkaa skannaamista.
+                    // Tarkoituksena on säilyttää alkuperäinen ikkuna koskemattomana jotta voimme skannata
+                    // useammasta kohdasta vastaavuuksia etsiessä.
+
+                    Buffer.BlockCopy(window, 0, temporaryWindow, 0, _windowMaxSize);
+                    windowToScan = temporaryWindow;
+
+                    windowsSwapped = true;
+
+                    for (var i = originalInputStart; i <= inputPointer; i++)
+                    {
+                        AddInputToWindow(
+                            windowToScan,
+                            _windowMaxSize,
+                            inputBlock[i],
+                            ref windowFrontPointer,
+                            ref windowBackPointer);
+                    }
+                }
+
+                if (matchLength == MaxMatchLength)
+                {
+                    break;
+                }
+
+                inputPointer++;
+                matchLength++;
+            }
+
+            return matchLength >= MinAcceptableLength;
+        }
+
         /// <summary>
         /// Etsii jo nähdyn sisääntulevan tietovirran ikkunasta ensimmäisen vastaavuuden seuraaviin
         /// sisääntuleviin tavuihin skannaamalla ikkunaa takaperin.
         /// 
-        /// Etsintä EI ulotu ikkunassa mahdollisiin aiempiin vastaavuuksiin vaan vain ensimmäinen
-        /// vastaavuus palautetaan (vaikka aiemmin olisi pidempiä vastaavuuksia!)
+        /// Algoritmin yksinkertaistamiseksi vastaavuuksien etsiminen ei lue sisääntulevaa tietovirtaa vaan
+        /// käyttää vain aiemmin luettua blokkia syötteenä, jotta vastaavuuksien etsinnässä ei tarvitse
+        /// palata takaisin sisääntulevassa virrassa.
+        /// 
         /// </summary>
-        /// <param name="inputStream">Sisääntuleva tietovirta</param>
-        /// <param name="inputBuffer">Sisääntulevan tietovirran puskuri</param>
-        /// <param name="inputPointer">Sisääntulevan tietovirran puskurin seuraavan tavun osoitin</param>
-        /// <param name="dataInBuffer">Sisääntulevan tietovirran puskurin sisältämä tietomäärä tavuina</param>
-        /// <param name="window">Ikkunapuskuri josta vastaavuksia skannataan</param>
+        /// <param name="inputBlock">Käsiteltävä sisääntuleva blokki</param>
+        /// <param name="inputPointer">Sisääntulevan blokin seuraavan tavun osoitin</param>
+        /// <param name="dataInBlock">Sisääntulevan blokin sisältämä tietomäärä tavuina</param>
+        /// <param name="window">Ikkuna josta vastaavuksia skannataan</param>
+        /// <param name="temporaryWindow">Tilapäinen ikkuna josta vastaavuksia skannataan</param>
         /// <param name="windowFrontPointer">Ikkunan looginen alkukohta</param>
         /// <param name="windowBackPointer">Ikkunan looginen loppukohta</param>
         /// <returns></returns>
-        private (ushort, byte, byte?) ScanWindowForMatch(
-            Stream inputStream,
-            byte[] inputBuffer,
+        public (ushort, byte, byte?) ScanWindowForMatch(
+            byte[] inputBlock,
             ref int inputPointer,
-            ref int dataInBuffer,
-            byte[] window,
+            int dataInBlock,
+            ref byte[] window,
+            ref byte[] temporaryWindow,
             ref long windowFrontPointer,
             ref long windowBackPointer)
         {
-            var firstByte = GetByteFromInput(inputStream, inputBuffer, ref inputPointer, ref dataInBuffer);
-
-            if (!firstByte.HasValue)
+            if (inputPointer >= dataInBlock)
+            {
                 return (0, 0, null);
+            }
 
-            ushort distance_actual = 0;
+            var firstByte = inputBlock[inputPointer];
+            inputPointer++;
+
+            ushort distanceActual = 0;
             ushort distance = 0;
-            byte length = 0;
-            byte? nextByte = null;
+            ushort length = 0;
+
+            var tries = 0;
+            var nextByteAfterBestMatch = default(byte?);
+
+            var windowsSwapped = false;
 
             // Skannataan taaksepäin ikkunaa
             for (var i = windowBackPointer - 1; i >= windowFrontPointer; i--)
             {
-                //Console.WriteLine($"ScanWindowForMatch (0x{firstByte:X2}): i: {i} ({i % _windowMaxSize})");
-
-                distance_actual++;
+                distanceActual++;
 
                 if (window[i % _windowMaxSize] != firstByte)
                 {
-                    // Tavujonon alkukohtaa ei vielä löytynyt, jatka taaksepäin
+                    // Tavujonon alkukohtaa ei vielä löytynyt, jatka taaksepäin.
                     continue;
                 }
-
-                // Ensimmäinen vastaavuus löytyi, aloitetaan lisäämään uutta sisääntulevaa tavuvirtaa ikkunaan
-                AddInputToWindow(
-                    window,
-                    _windowMaxSize,
-                    firstByte.Value,
-                    ref windowFrontPointer,
-                    ref windowBackPointer);
-
-                // Asetetaan etäisyysviittaus alkukohtaan
-                distance = distance_actual;
-                length = 1;
 
                 // Skannataan eteenpäin kuinka monta lisätavua löytyy vastaavuutta
                 // Huom: koska seuraavat sisäänluetut tavut lisätään sitä mukaan osaksi ikkunaa, voi pituusviittaus
                 // viitata myös uusiin tavuihin - tämä on LZ77:ssa täysin laillista. 
-                long j;
 
-                for (j = i + 1; j < windowBackPointer; j++)
+                if (ScanWindowForward(
+                        i + 1,
+                        inputBlock,
+                        inputPointer,
+                        dataInBlock,
+                        window,
+                        temporaryWindow,
+                        windowFrontPointer,
+                        windowBackPointer,
+                        out var matchLength,
+                        out var nextUnmatchedByte))
                 {
-                    var nextByte_tmp = GetByteFromInput(inputStream, inputBuffer, ref inputPointer, ref dataInBuffer);
-
-                    if (nextByte_tmp != null)
-                    {
-                        AddInputToWindow(
-                            window,
-                            _windowMaxSize,
-                            nextByte_tmp.Value,
-                            ref windowFrontPointer,
-                            ref windowBackPointer);
-
-                        nextByte = nextByte_tmp;
-
-                        if (window[j % _windowMaxSize] != nextByte_tmp.Value)
-                        {
-                            // Seuraava tavu ei enää löytynyt ikkunasta
-                            break;
-                        }
-
-                        if (length == byte.MaxValue)
-                        {
-                            // Maksimipituus täyttyi
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        // Syöte loppui, vähennä pituudesta yksi jotta viimeinen luettu tavu jää omaksi
-                        // viitteeseen
-                        length--;
-
-                        if (length == 0)
-                            distance = 0;
-
-                        break;
-                    }
-
-                    length++;
+                    // Riittävä vastaavuus löytyi
+                    distance = distanceActual;
+                    length = matchLength;
+                    nextByteAfterBestMatch = nextUnmatchedByte;
+                    break;
                 }
 
-                break;
+                if (matchLength >= MinMatchLength)
+                {
+                    tries++;
+
+                    if (matchLength > length)
+                    {
+                        // Merkitään tämä toistaiseksi parhaimmaksi ja otetaan kohta talteen
+                        distance = distanceActual;
+                        length = matchLength;
+                        nextByteAfterBestMatch = nextUnmatchedByte;
+                    }
+                }
+
+                if (tries >= MaxMatchRetries)
+                {
+                    // Käytetään sitä parasta tulosta mikä tähän asti on saatu
+                    break;
+                }
             }
 
-            if (distance == 0)
+            if (distance > 0)
             {
-                AddInputToWindow(
-                    window,
-                    _windowMaxSize,
-                    firstByte.Value,
-                    ref windowFrontPointer,
-                    ref windowBackPointer);
+                // Syötetään ikkunaan kaikki löydetyt tavut + viimeinen
+                // ei vastaava tavu, joka palautuu omanaan.
+                for (var i = 0; i < length + 1; i++)
+                {
+                    AddInputToWindow(
+                        window,
+                        _windowMaxSize,
+                        inputBlock[inputPointer - 1],
+                        ref windowFrontPointer,
+                        ref windowBackPointer);
+                    inputPointer += 1;
+                }
+
+                inputPointer -= 1;
+
+                // Palauta takaisinpäinviittaus + seuraava tavu
+                return (distance, (byte)length, nextByteAfterBestMatch);
             }
 
-            return (distance, length, nextByte ?? firstByte);
+            // Lisää ainoa luettu tavu ikkunaan
+            AddInputToWindow(
+                window,
+                _windowMaxSize,
+                firstByte,
+                ref windowFrontPointer,
+                ref windowBackPointer);
+
+            // Palauta tavu omanaan
+            return (0, 0, firstByte);
         }
 
         /// <summary>
@@ -247,6 +390,12 @@ namespace Tiracompress.Algorithms
             Stream outputStream,
             ref ulong compressedBytes)
         {
+            if (outputBytePointer > _outputBufferSize - 3)
+            {
+                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
+                outputBytePointer = 0;
+            }
+
             outputBuffer[outputBytePointer] = 0;
             outputBytePointer++;
 
@@ -289,6 +438,12 @@ namespace Tiracompress.Algorithms
             ref ulong compressedBytes,
             byte nextChar)
         {
+            if (outputBytePointer > _outputBufferSize - 3)
+            {
+                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
+                outputBytePointer = 0;
+            }
+
             // Kirjoita etäisyyden alempi tavu (LE järjestys)
             outputBuffer[outputBytePointer] = (byte)(distance & 0xFF);
             outputBytePointer++;
@@ -327,6 +482,8 @@ namespace Tiracompress.Algorithms
         /// <summary>
         /// Pakkaa sisääntulevan tietovirran ulosmenevään tietovirtaan käyttäen määriteltyä
         /// LZ77 ikkunaa.
+        /// 
+        /// Käsittelee ja pakkaa tietovirtaa sisäänluettavien puskurien rajojen sisällä.
         /// </summary>
         /// <param name="window">Pakkausikkuna</param>
         /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
@@ -344,16 +501,90 @@ namespace Tiracompress.Algorithms
 
             var inputPointer = -1;
             var outputBytePointer = 0;
+            var outputBitPointer = 0;
             var dataInBuffer = 0;
 
             long windowFrontPointer = 0;
             long windowBackPointer = 0;
+
+            var temporaryWindow = new byte[_windowMaxSize];
 
             ulong literals = 0;
             ulong references = 0;
 
             byte? nextByte;
 
+            do
+            {
+                // Luetaan ja prosessoidaan puskuri kerrallaan
+                try
+                {
+                    dataInBuffer = inputStream.Read(inputBuffer, 0, inputBuffer.Length);
+                }
+                catch
+                {
+                    // Lukeminen ei onnistunut!
+                    return (0, 0, 0);
+                }
+
+                if (dataInBuffer <= 0)
+                {
+                    // Sisääntuleva tietovirta on loppu
+                    break;
+                }
+
+                // Etsitään ikkunasta vastaavuutta käsiteltäville tavuille LZ77 algoritmilla
+                // kunnes kaikki sisääntulevan puskurin data on luettu.
+
+                inputPointer = 0;
+
+                while (inputPointer < dataInBuffer)
+                {
+                    (ushort distance, byte length, nextByte) = ScanWindowForMatch(
+                        inputBuffer,
+                        ref inputPointer,
+                        dataInBuffer,
+                        ref window,
+                        ref temporaryWindow,
+                        ref windowFrontPointer,
+                        ref windowBackPointer);
+
+                    if (!nextByte.HasValue)
+                    {
+                        // Virhetilanne
+                        return (0, 0, 0);
+                    }
+
+                    if (distance == 0)
+                    {
+                        // Vastaavuutta ei löytynyt ikkunasta
+                        OutputLiteralData(
+                            nextByte.Value,
+                            outputBuffer,
+                            ref outputBytePointer,
+                            outputStream,
+                            ref compressedBytes);
+
+                        literals++;
+                    }
+                    else
+                    {
+                        // Vastaavuus löytyi ikkunasta
+                        OutputReferencedData(
+                            distance,
+                            length,
+                            outputBuffer,
+                            ref outputBytePointer,
+                            outputStream,
+                            ref compressedBytes,
+                            nextByte.Value);
+
+                        references++;
+                    }
+                }
+            } while (dataInBuffer > 0);
+
+            /*
             do
             {
                 // Etsitään ikkunasta vastaavuutta seuraaville tavuille
@@ -369,32 +600,7 @@ namespace Tiracompress.Algorithms
                 if (!nextByte.HasValue)
                     continue; // Sisääntulevan datan loppu
 
-                if (distance == 0)
-                {
-                    // Vastaavuutta ei löytynyt ikkunasta
-                    OutputLiteralData(
-                        nextByte.Value,
-                        outputBuffer,
-                        ref outputBytePointer,
-                        outputStream,
-                        ref compressedBytes);
-
-                    literals++;
-                }
-                else
-                {
-                    // Yksi tai useampi peräkkäinen vastaavuus löytyi ikkunasta
-                    OutputReferencedData(
-                        distance,
-                        length,
-                        outputBuffer,
-                        ref outputBytePointer,
-                        outputStream,
-                        ref compressedBytes,
-                        nextByte.Value);
-
-                    references++;
-                }
+                
 
                 if (outputBytePointer >= outputBuffer.Length)
                 {
@@ -403,9 +609,10 @@ namespace Tiracompress.Algorithms
                 }
 
             } while (nextByte != null);
+            */
 
             // Kirjoita viimeinen keskeneräinen blokki
-            if (outputBytePointer > 0)
+            if (outputBytePointer > 0 || outputBitPointer > 0)
             {
                 compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
             }

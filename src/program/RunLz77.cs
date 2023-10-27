@@ -11,8 +11,8 @@ namespace Tiracompress
             using var input = File.OpenRead(inputFile);
             using var output = File.Create(outputFile);
 
-            // Käytetään 32KB pakkausikkunaa
-            var lz77 = new Lz77(32 * 1024);
+            // Käytetään oletus pakkausikkunaa
+            var lz77 = new Lz77();
 
             Console.WriteLine();
             Console.Write("Compressing data... ");
