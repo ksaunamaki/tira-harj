@@ -488,7 +488,7 @@ namespace Tiracompress.Algorithms
         /// -- Pakkaamattoman datan koko tavuina (64-bittinen etumerkitön kokonaisluku) --
         /// -- HUFFMAN-PUU --
         /// -- Huffman-puun serialisoinnin lopetusmerkki (1-tavu, 0x03)
-        /// -- COMPRESSED DATA --
+        /// -- PAKATTU DATA --
         /// </summary>
         /// <param name="huffmanTreeRoot">Huffman-symbolipuun juurialkio</param>
         /// <param name="codeTable">Koodaustaulukko jota käytetään pakkaamiseen</param>
@@ -518,7 +518,7 @@ namespace Tiracompress.Algorithms
             // Aloita koodaus
             var timing = Stopwatch.StartNew();
 
-            ulong compressedSize = Encode(codeTable, inputStream, outputStream);
+            var compressedSize = Encode(codeTable, inputStream, outputStream);
 
             var elapsed = timing.Elapsed;
 
@@ -532,7 +532,7 @@ namespace Tiracompress.Algorithms
         /// -- Pakkaamattoman datan koko tavuina (64-bittinen etumerkitön kokonaisluku) --
         /// -- HUFFMAN-PUU --
         /// -- Huffman-puun serialisoinnin lopetusmerkki (1-tavu, 0x03)
-        /// -- COMPRESSED DATA --
+        /// -- PAKATTU DATA --
         /// </summary>
         /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
         /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>

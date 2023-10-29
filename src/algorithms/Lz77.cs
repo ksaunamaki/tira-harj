@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Microsoft.VisualBasic;
 
 namespace Tiracompress.Algorithms
 {
@@ -11,7 +10,7 @@ namespace Tiracompress.Algorithms
         /// <summary>
         /// Pakkausikkunan oletus-koko (4 kilotavua)
         /// </summary>
-        private const int DefaultBufferSize = 4 * 1024;
+        private const int DefaultWindowSize = 4 * 1024;
 
         /// <summary>
         /// Minimipituus vastaavuutta mikä kelpuutetaan pakkausikkunasta
@@ -57,6 +56,25 @@ namespace Tiracompress.Algorithms
         private readonly int _bitsForLength;
         private readonly int _inputBufferSize;
         private readonly int _outputBufferSize;
+        private readonly ushort[] _bitExponents = new ushort[]
+        {
+            (ushort)Math.Pow(2, 0),
+            (ushort)Math.Pow(2, 1),
+            (ushort)Math.Pow(2, 2),
+            (ushort)Math.Pow(2, 3),
+            (ushort)Math.Pow(2, 4),
+            (ushort)Math.Pow(2, 5),
+            (ushort)Math.Pow(2, 6),
+            (ushort)Math.Pow(2, 7),
+            (ushort)Math.Pow(2, 8),
+            (ushort)Math.Pow(2, 9),
+            (ushort)Math.Pow(2, 10),
+            (ushort)Math.Pow(2, 11),
+            (ushort)Math.Pow(2, 12),
+            (ushort)Math.Pow(2, 13),
+            (ushort)Math.Pow(2, 14),
+            (ushort)Math.Pow(2, 15),
+        };
 
         /// <summary>
         /// Luo uuden LZ77 algoritmin, optionaalisesti oletuksesta poikkeavalla ikkunan koolla ja/tai puskurien koolla.
@@ -69,7 +87,7 @@ namespace Tiracompress.Algorithms
             int? inputBufferSize = null,
             int? outputBufferSize = null)
         {
-            _windowMaxSize = Math.Max(0, Math.Min(windowSize ?? DefaultBufferSize, DefaultBufferSize));
+            _windowMaxSize = Math.Max(0, Math.Min(windowSize ?? DefaultWindowSize, DefaultWindowSize));
 
             // Lasketaan montako bittiä tarvitaan viittauksen (maksimi)etäisyyden esittämiseksi bittipakatussa muodossa,
             // pohjautuen ikkunan kokoon
@@ -92,40 +110,12 @@ namespace Tiracompress.Algorithms
 
             // Puskurien koko vaikuttaa levy-I/O:n määrään (l. I/O:n tehokkuuteen) koska kaikki luku ja kirjoitus
             // tietovirtoihin tehdään puskurien kautta
-            _inputBufferSize = inputBufferSize ?? 128 * 1024;
-            _outputBufferSize = outputBufferSize ?? 128 * 1024;
-        }
 
-        /// <summary>
-        /// Simuloi yksittäisen tavun lukemista sisääntulevasta tietovirrasta, käyttäen
-        /// puskurointia välissä
-        /// </summary>
-        /// <param name="inputStream">Sisääntuleva tietovirta</param>
-        /// <param name="inputBuffer">Sisääntulevan tietovirran puskuri</param>
-        /// <param name="inputPointer">Sisääntulevan tietovirran puskurin seuraavan tavun osoitin</param>
-        /// <param name="dataInBuffer">Sisääntulevan tietovirran puskurin sisältämä tietomäärä tavuina</param>
-        private byte? GetByteFromInput(
-            Stream inputStream,
-            byte[] inputBuffer,
-            ref int inputPointer,
-            ref int dataInBuffer)
-        {
-            if (inputPointer >= inputBuffer.Length ||
-                inputPointer == -1)
-            {
-                dataInBuffer = inputStream.Read(inputBuffer, 0, inputBuffer.Length);
-                inputPointer = 0;
-            }
+            // Puskuri ei voi olla pienempi kuin pisimmän koodauksen viemä tila kokonaisuna tavuina + 1 tavu
+            var minimumBufferSize = ((_bitsForDistance + _bitsForLength + 8) / 8) + 2;
 
-            if (inputPointer >= dataInBuffer)
-            {
-                return null;
-            }
-
-            var b = inputBuffer[inputPointer];
-            inputPointer++;
-
-            return b;
+            _inputBufferSize = Math.Max(minimumBufferSize, inputBufferSize ?? 128 * 1024);
+            _outputBufferSize = Math.Max(minimumBufferSize, outputBufferSize ?? 128 * 1024);
         }
 
         /// <summary>
@@ -250,18 +240,18 @@ namespace Tiracompress.Algorithms
         /// sisääntuleviin tavuihin skannaamalla ikkunaa takaperin.
         /// 
         /// Algoritmin yksinkertaistamiseksi vastaavuuksien etsiminen ei lue sisääntulevaa tietovirtaa vaan
-        /// käyttää vain aiemmin luettua blokkia syötteenä, jotta vastaavuuksien etsinnässä ei tarvitse
+        /// käyttää vain aiemmin luettua sisääntulevan tietovirran puskuria syötteenä, jotta vastaavuuksien etsinnässä ei tarvitse
         /// palata takaisin sisääntulevassa virrassa.
         /// 
         /// </summary>
-        /// <param name="inputBlock">Käsiteltävä sisääntuleva blokki</param>
+        /// <param name="inputBlock">Käsiteltävä sisääntulevan tietovirran puskuri</param>
         /// <param name="inputPointer">Sisääntulevan blokin seuraavan tavun osoitin</param>
         /// <param name="dataInBlock">Sisääntulevan blokin sisältämä tietomäärä tavuina</param>
-        /// <param name="window">Ikkuna josta vastaavuksia skannataan</param>
-        /// <param name="temporaryWindow">Tilapäinen ikkuna josta vastaavuksia skannataan</param>
+        /// <param name="window">Pakkausikkuna josta vastaavuksia skannataan</param>
+        /// <param name="temporaryWindow">Tilapäinen ikkunapuskuri</param>
         /// <param name="windowFrontPointer">Ikkunan looginen alkukohta</param>
         /// <param name="windowBackPointer">Ikkunan looginen loppukohta</param>
-        /// <returns></returns>
+        /// <returns>Tuple (etäisyys, vastaavuuden pituus ja seuraava ei vastaava tavu)</returns>
         public (ushort, byte, byte?) ScanWindowForMatch(
             byte[] inputBlock,
             ref int inputPointer,
@@ -285,8 +275,6 @@ namespace Tiracompress.Algorithms
 
             var tries = 0;
             var nextByteAfterBestMatch = default(byte?);
-
-            var windowsSwapped = false;
 
             // Skannataan taaksepäin ikkunaa
             for (var i = windowBackPointer - 1; i >= windowFrontPointer; i--)
@@ -376,46 +364,195 @@ namespace Tiracompress.Algorithms
         }
 
         /// <summary>
+        /// Kirjoittaa N koodibittiä uloskirjoitettavaan blokkiin.
+        /// 
+        /// Kirjoitettavat bitit ovat alimmat bitit Little-endian tulkintaisesti.
+        /// </summary>
+        /// <param name="value">Tavu joka kirjoitetaan</param>
+        /// <param name="bits">Kirjoitettavien bittien lukumäärä tavussa</param>
+        /// <param name="outputBlock">Uloskirjoitusblokki</param>
+        /// <param name="outputBytePointer">Uloskirjoitusblokin tavuosoitin mitä tavua kirjoitetaan</param>
+        /// <param name="outputBitPointer">Uloskirjoitusblokin bittiosoitin mitä bittiä tavusta kirjoitetaan</param>
+        /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
+        /// <param name="compressedBytes">Pakattujen tavujen määrä</param>
+        public void Output8Bits(
+            byte value,
+            int bits,
+            byte[] outputBlock,
+            ref int outputBytePointer,
+            ref int outputBitPointer,
+            Stream outputStream,
+            ref ulong compressedBytes)
+        {
+            // Montako bittiä vielä mahtuu nykyiseen uloskirjoitettavaan tavuun?
+            var remaining = 8 - outputBitPointer;
+
+            if (remaining < bits)
+            {
+                // Koodibitit jakautuu kahden tavun välille
+                var removeLowerBits = bits - remaining;
+
+                // Ensimmäinen yhdistäminen vasemmanpuoleisimmille biteille
+                byte b = value;
+                b >>= removeLowerBits;
+                outputBlock[outputBytePointer] |= b;
+
+                outputBytePointer++;
+
+                // Tarkista loppuiko blokki
+                if (outputBytePointer >= outputBlock.Length)
+                {
+                    compressedBytes += FlushOutputBlock(outputBlock, outputBytePointer, outputStream);
+                    outputBytePointer = 0;
+                }
+
+                // Nollaa seuraava kirjoitettava tavu puskurissa 
+                outputBlock[outputBytePointer] = 0;
+
+                // Toinen yhdistäminen lopuille biteille normaalissa polussa
+                bits -= remaining;
+
+                // Poista koodista yläbitit jotka jo kirjoitettiin
+                value <<= 8 - removeLowerBits;
+                value >>= 8 - removeLowerBits;
+
+                outputBitPointer = 0;
+                remaining = 8;
+            }
+
+            /* Laske kuinka paljon bittejä pitää siirtää vasemmalle jotta yhdistettävissä kohteeseen:
+
+                 Uloskirjoitettava tavu:  1011XXXX
+                 Koodi:                   YYYYYY10
+                                                <<
+                                          YYYY1000
+                                                OR
+                                          1011XXXX
+                                                 =
+                 Uloskirjoitettava tavu:  101110XX
+            */
+
+            var shiftLeft = remaining - bits;
+
+            if (shiftLeft > 0)
+                value <<= shiftLeft;
+
+            outputBlock[outputBytePointer] |= value;
+            outputBitPointer += bits;
+
+            if (outputBitPointer == 8)
+            {
+                outputBitPointer = 0;
+                outputBytePointer++;
+
+                if (outputBytePointer >= outputBlock.Length)
+                {
+                    compressedBytes += FlushOutputBlock(outputBlock, outputBytePointer, outputStream);
+                    outputBytePointer = 0;
+                }
+            }
+
+            if (outputBitPointer == 0 &&
+                outputBytePointer < outputBlock.Length)
+            {
+                // Nollaa seuraava kirjoitettava tavu puskurissa
+                outputBlock[outputBytePointer] = 0;
+            }
+        }
+
+        /// <summary>
+        /// Kirjoittaa N koodibittiä uloskirjoitettavaan blokkiin
+        /// 
+        /// Kirjoitettavat bitit ovat alimmat bitit Little-endian tulkintaisesti.
+        /// </summary>
+        /// <param name="value">16-bittinen arvo joka kirjoitetaan</param>
+        /// <param name="bits">Kirjoitettavien bittien lukumäärä tavussa</param>
+        /// <param name="outputBlock">Uloskirjoitusblokki</param>
+        /// <param name="outputBytePointer">Uloskirjoitusblokin tavuosoitin mitä tavua kirjoitetaan</param>
+        /// <param name="outputBitPointer">Uloskirjoitusblokin bittiosoitin mitä bittiä tavusta kirjoitetaan</param>
+        /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
+        /// <param name="compressedBytes">Pakattujen tavujen määrä</param>
+        public void OutputBits(
+            ushort value,
+            int bits,
+            byte[] outputBlock,
+            ref int outputBytePointer,
+            ref int outputBitPointer,
+            Stream outputStream,
+            ref ulong compressedBytes)
+        {
+            byte encodeByte;
+
+            // Yli kahdeksan bitin bittijono, pilkotaan tavupalasiin ylimmistä biteistä alkaen
+            var bitsToOutput = bits - (bits / 8 * 8);
+
+            for (var shiftRounds = bits / 8; shiftRounds > 0; shiftRounds--)
+            {
+                var temporaryCode = value;
+                temporaryCode >>= shiftRounds * 8;
+
+                encodeByte = (byte)(temporaryCode & 0xFF);
+
+                Output8Bits(
+                    encodeByte,
+                    bitsToOutput,
+                    outputBlock,
+                    ref outputBytePointer,
+                    ref outputBitPointer,
+                    outputStream,
+                    ref compressedBytes);
+
+                bits -= bitsToOutput;
+                bitsToOutput = 8;
+            }
+
+            // Lisää alin tavu
+            Output8Bits(
+                (byte)(value & 0xFF),
+                bits,
+                outputBlock,
+                ref outputBytePointer,
+                ref outputBitPointer,
+                outputStream,
+                ref compressedBytes);
+        }
+
+        /// <summary>
         /// Kirjoita ulosmenevään puskuriin yksittäinen sisääntuleva tavu sellaisenaan
         /// </summary>
         /// <param name="outputByte">Tavu joka kirjoitetaan</param>
         /// <param name="outputBuffer">Ulosmenevän pakkauksen puskuri</param>
         /// <param name="outputBytePointer">Ulosmenevän pakkauksen puskurin tavuosoitin</param>
-        /// <param name="outputStream">Ulosmenevä tietovirta</param>
-        /// <param name="compressedBytes">Tähän saakka pakattujen tavujen määrä</param>
+        /// <param name="outputBitPointer">Ulosmenevän pakkauksen puskurin bittiosoitin</param>
+        /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
+        /// <param name="compressedBytes">Pakattujen tavujen määrä</param>
         public void OutputLiteralData(
             byte outputByte,
             byte[] outputBuffer,
             ref int outputBytePointer,
+            ref int outputBitPointer,
             Stream outputStream,
             ref ulong compressedBytes)
         {
-            if (outputBytePointer > _outputBufferSize - 3)
-            {
-                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
-                outputBytePointer = 0;
-            }
+            // Kirjoita pituus
+            Output8Bits(
+                byte.MinValue,
+                _bitsForLength,
+                outputBuffer,
+                ref outputBytePointer,
+                ref outputBitPointer,
+                outputStream,
+                ref compressedBytes);
 
-            outputBuffer[outputBytePointer] = 0;
-            outputBytePointer++;
-
-            if (outputBytePointer >= outputBuffer.Length)
-            {
-                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
-                outputBytePointer = 0;
-            }
-
-            outputBuffer[outputBytePointer] = 0;
-            outputBytePointer++;
-
-            if (outputBytePointer >= outputBuffer.Length)
-            {
-                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
-                outputBytePointer = 0;
-            }
-
-            outputBuffer[outputBytePointer] = outputByte;
-            outputBytePointer++;
+            // Kirjoita literaali tavu
+            Output8Bits(
+                outputByte,
+                8,
+                outputBuffer,
+                ref outputBytePointer,
+                ref outputBitPointer,
+                outputStream,
+                ref compressedBytes);
         }
 
         /// <summary>
@@ -426,57 +563,49 @@ namespace Tiracompress.Algorithms
         /// <param name="length">Tavujen määrä ikkunassa jotka vastaavat sisääntulevaa tavujonoa</param>
         /// <param name="outputBuffer">Ulosmenevän pakkauksen puskuri</param>
         /// <param name="outputBytePointer">Ulosmenevän pakkauksen puskurin tavuosoitin</param>
-        /// <param name="outputStream">Ulosmenevä tietovirta</param>
-        /// <param name="compressedBytes">Tähän saakka pakattujen tavujen määrä</param>
-        /// <param name="nextChar">Tavu joka kirjoitetaan viittauksen jälkeen</param>
+        /// <param name="outputBitPointer">Ulosmenevän pakkauksen puskurin bittiosoitin</param>
+        /// <param name="nextByte">Tavu joka kirjoitetaan viittauksen jälkeen</param>
+        /// <param name="outputStream">Ulosmenevä tietovirta johon data pakataan</param>
+        /// <param name="compressedBytes">Pakattujen tavujen määrä</param>
         public void OutputReferencedData(
             ushort distance,
             byte length,
             byte[] outputBuffer,
             ref int outputBytePointer,
+            ref int outputBitPointer,
+            byte nextByte,
             Stream outputStream,
-            ref ulong compressedBytes,
-            byte nextChar)
+            ref ulong compressedBytes)
         {
-            if (outputBytePointer > _outputBufferSize - 3)
-            {
-                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
-                outputBytePointer = 0;
-            }
-
-            // Kirjoita etäisyyden alempi tavu (LE järjestys)
-            outputBuffer[outputBytePointer] = (byte)(distance & 0xFF);
-            outputBytePointer++;
-
-            if (outputBytePointer >= outputBuffer.Length)
-            {
-                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
-                outputBytePointer = 0;
-            }
-
-            // Kirjoita etäisyyden ylempi tavu (LE järjestys)
-            outputBuffer[outputBytePointer] = (byte)(distance >> 8);
-            outputBytePointer++;
-
-            if (outputBytePointer >= outputBuffer.Length)
-            {
-                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
-                outputBytePointer = 0;
-            }
-
             // Kirjoita pituus
-            outputBuffer[outputBytePointer] = length;
-            outputBytePointer++;
+            Output8Bits(
+                length,
+                _bitsForLength,
+                outputBuffer,
+                ref outputBytePointer,
+                ref outputBitPointer,
+                outputStream,
+                ref compressedBytes);
 
-            if (outputBytePointer >= outputBuffer.Length)
-            {
-                compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
-                outputBytePointer = 0;
-            }
+            // Kirjoita etäisyys
+            OutputBits(
+                distance,
+                _bitsForDistance,
+                outputBuffer,
+                ref outputBytePointer,
+                ref outputBitPointer,
+                outputStream,
+                ref compressedBytes);
 
             // Kirjoita seuraava tavu
-            outputBuffer[outputBytePointer] = nextChar;
-            outputBytePointer++;
+            Output8Bits(
+                nextByte,
+                8,
+                outputBuffer,
+                ref outputBytePointer,
+                ref outputBitPointer,
+                outputStream,
+                ref compressedBytes);
         }
 
         /// <summary>
@@ -494,15 +623,13 @@ namespace Tiracompress.Algorithms
             Stream inputStream,
             Stream outputStream)
         {
-            ulong compressedBytes = 0;
-
             var inputBuffer = new byte[_inputBufferSize];
             var outputBuffer = new byte[_outputBufferSize];
 
-            var inputPointer = -1;
+            int inputPointer;
             var outputBytePointer = 0;
             var outputBitPointer = 0;
-            var dataInBuffer = 0;
+            int dataInBuffer;
 
             long windowFrontPointer = 0;
             long windowBackPointer = 0;
@@ -513,6 +640,11 @@ namespace Tiracompress.Algorithms
             ulong references = 0;
 
             byte? nextByte;
+
+            // Kirjoitetaan alkuun pakkaamaton tiedostokoko
+            ulong inputSize = (ulong)inputStream.Length;
+            outputStream.Write(BitConverter.GetBytes(inputSize), 0, 8);
+            ulong compressedBytes = 0;
 
             do
             {
@@ -562,6 +694,7 @@ namespace Tiracompress.Algorithms
                             nextByte.Value,
                             outputBuffer,
                             ref outputBytePointer,
+                            ref outputBitPointer,
                             outputStream,
                             ref compressedBytes);
 
@@ -575,45 +708,22 @@ namespace Tiracompress.Algorithms
                             length,
                             outputBuffer,
                             ref outputBytePointer,
+                            ref outputBitPointer,
+                            nextByte.Value,
                             outputStream,
-                            ref compressedBytes,
-                            nextByte.Value);
+                            ref compressedBytes);
 
                         references++;
                     }
                 }
             } while (dataInBuffer > 0);
 
-            /*
-            do
-            {
-                // Etsitään ikkunasta vastaavuutta seuraaville tavuille
-                (ushort distance, byte length, nextByte) = ScanWindowForMatch(
-                    inputStream,
-                    inputBuffer,
-                    ref inputPointer,
-                    ref dataInBuffer,
-                    window,
-                    ref windowFrontPointer,
-                    ref windowBackPointer);
-
-                if (!nextByte.HasValue)
-                    continue; // Sisääntulevan datan loppu
-
-                
-
-                if (outputBytePointer >= outputBuffer.Length)
-                {
-                    compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
-                    outputBytePointer = 0;
-                }
-
-            } while (nextByte != null);
-            */
-
             // Kirjoita viimeinen keskeneräinen blokki
             if (outputBytePointer > 0 || outputBitPointer > 0)
             {
+                if (outputBitPointer > 0)
+                    outputBytePointer++;
+
                 compressedBytes += FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
             }
 
@@ -626,11 +736,17 @@ namespace Tiracompress.Algorithms
         /// Pakkaa sisääntulevan tietovirran ulosmenevään tietovirtaan LZ77 algoritmilla käyttäen luokan
         /// ikkunankokoa.
         /// 
-        /// Koodaus: jokainen literaali on koodattuna (0,[byte]) kolmena tavuna, jossa 0 on 16-bittinen arvo
-        ///          jokainen takaisinpäinviittaus on koodattuna (d,l,[byte]) neljänä tavuna, jossa
-        ///            d on etäisyys liukuvassa ikkunassa taaksepäin 16-bittisenä etumerkittömänä little-endian koodattuna lukuna,
-        ///            l on toistettavien tavujen määrä liukuvassa ikkunasta alkaen kohdasta d 8-bittisenä lukuna, ja
-        ///            [byte] on viittauksen jälkeinen seuraava literaali tavu
+        /// Tiedostorakenne:
+        /// -- Pakkaamattoman datan koko tavuina (64-bittinen etumerkitön kokonaisluku) --
+        /// -- LZ77 PAKATTU DATA --
+        /// 
+        /// LZ77 koodaus: - jokainen literaali on koodattuna (l,[byte]), jossa l on vastaavuuden pituuden maksimibittipituus (_bitsForLength, 8 bittiä),
+        ///                 ja saa literaalien kohdalla arvo nolla, ja jonka perässä kahdeksalla bitillä literaalitavu.
+        ///               - jokainen takaisinpäinviittaus on koodattuna (l, d, [byte]), jossa l on vastaavuuden vastaavuuden pituuden maksimibittipituus,
+        ///                 d on löydetyn vastaavuuden etäisyyden maksimibittipituus (_bitsForDistance, 13 bittiä oletusikkunakoolla), ja
+        ///                 jonka perässä kahdeksalla bitillä viittauksen jälkeinen seuraava literaalitavu.
+        ///                 
+        ///                 l ja d ovat esitystavaltaan etumerkittömiä little-endian järjestyksessä olevia kokonaislukuja.
         ///            
         /// </summary>
         /// <param name="inputStream">Sisääntuleva tietovirta josta luetaan pakkaamaton syöte</param>
@@ -660,14 +776,195 @@ namespace Tiracompress.Algorithms
         }
 
         /// <summary>
+        /// Purkaa yksittäisen sisäänluetun puskurin
+        /// </summary>
+        /// <returns>Tavuja nykyisen sisäänluetun puskurin lopusta jotka pitää säilyttää seuraavassa puskurissa alussa</returns>
+        private int DecodeBuffer(
+            bool isLastBuffer,
+            byte[] window,
+            ref long windowFrontPointer,
+            ref long windowBackPointer,
+            ulong expectedDataSize,
+            byte[] inputBuffer,
+            int inputBufferSize,
+            ref int inputBitPointer,
+            byte[] outputBuffer,
+            Stream outputStream,
+            ref int outputBytePointer,
+            ref ulong uncompressedBytes)
+        {
+            int inputBytePointer = 0;
+
+            // Jos uuden kierroksen alussa ei ole riittävästi tavuja jäljellä pisimpään mahdolliseen esitykseen,
+            // lopeta käsittely ja siirrä jäljelläolevat tavut seuraavaan käsiteltävään puskuriin
+            int cutoffPoint = !isLastBuffer
+                ? inputBufferSize - ((_bitsForDistance + _bitsForLength + 8) / 8) - 1
+                : inputBufferSize;
+
+            int lengthHighBit = _bitsForLength - 1;
+            byte length;
+            int distanceHighBit = _bitsForDistance - 1;
+            ushort distance;
+            int exp;
+            byte literalByte;
+
+            while (inputBytePointer < inputBufferSize)
+            {
+                if (uncompressedBytes == expectedDataSize)
+                    return 0;
+
+                if (inputBytePointer >= cutoffPoint)
+                {
+                    return inputBufferSize - inputBytePointer;
+                }
+
+                if (outputBytePointer >= outputBuffer.Length)
+                {
+                    _ = FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
+                    outputBytePointer = 0;
+                }
+
+                // Luetaan pituus
+                length = 0;
+                for (int i = lengthHighBit; i >= 0; i--)
+                {
+                    if (inputBitPointer >= 8)
+                    {
+                        inputBitPointer = 0;
+                        inputBytePointer++;
+                    }
+
+                    exp = _bitExponents[lengthHighBit - inputBitPointer];
+                    if ((inputBuffer[inputBytePointer] & exp) == exp)
+                        length |= (byte)_bitExponents[i];
+
+                    inputBitPointer++;
+                }
+
+                if (length == 0)
+                {
+                    // Literaalitavu, luetaan seuraavat kahdeksan bittiä
+                    literalByte = 0;
+                    for (int i = 7; i >= 0; i--)
+                    {
+                        if (inputBitPointer >= 8)
+                        {
+                            inputBitPointer = 0;
+                            inputBytePointer++;
+                        }
+
+                        exp = _bitExponents[7 - inputBitPointer];
+                        if ((inputBuffer[inputBytePointer] & exp) == exp)
+                            literalByte |= (byte)_bitExponents[i];
+
+                        inputBitPointer++;
+                    }
+
+                    outputBuffer[outputBytePointer] = literalByte;
+                    outputBytePointer++;
+
+                    AddInputToWindow(
+                        window,
+                        _windowMaxSize,
+                        literalByte,
+                        ref windowFrontPointer,
+                        ref windowBackPointer);
+
+                    uncompressedBytes++;
+
+                    continue;
+                }
+
+                // Takaisinpäinviittaus, luetaan pituus
+                distance = 0;
+
+                for (int i = distanceHighBit; i >= 0; i--)
+                {
+                    if (inputBitPointer >= 8)
+                    {
+                        inputBitPointer = 0;
+                        inputBytePointer++;
+                    }
+
+                    exp = _bitExponents[7 - inputBitPointer];
+                    if ((inputBuffer[inputBytePointer] & exp) == exp)
+                        distance |= _bitExponents[i];
+
+                    inputBitPointer++;
+                }
+
+                // Kopioidaan ikkunasta
+                var start = windowBackPointer - distance;
+
+                for (int p = 0; p < length; p++)
+                {
+                    literalByte = window[(start + p) % _windowMaxSize];
+
+                    outputBuffer[outputBytePointer] = literalByte;
+                    outputBytePointer++;
+
+                    AddInputToWindow(
+                        window,
+                        _windowMaxSize,
+                        literalByte,
+                        ref windowFrontPointer,
+                        ref windowBackPointer);
+
+                    uncompressedBytes++;
+
+                    // Tarkista loppuiko blokki
+                    if (outputBytePointer >= outputBuffer.Length)
+                    {
+                        _ = FlushOutputBlock(outputBuffer, outputBuffer.Length, outputStream);
+                        outputBytePointer = 0;
+                    }
+                }
+
+                // Lopuksi literaalitavu, luetaan seuraavat kahdeksan bittiä
+                literalByte = 0;
+                for (int i = 7; i >= 0; i--)
+                {
+                    if (inputBitPointer >= 8)
+                    {
+                        inputBitPointer = 0;
+                        inputBytePointer++;
+                    }
+
+                    exp = _bitExponents[7 - inputBitPointer];
+                    if ((inputBuffer[inputBytePointer] & exp) == exp)
+                        literalByte |= (byte)_bitExponents[i];
+
+                    inputBitPointer++;
+                }
+
+                outputBuffer[outputBytePointer] = literalByte;
+                outputBytePointer++;
+
+                AddInputToWindow(
+                    window,
+                    _windowMaxSize,
+                    literalByte,
+                    ref windowFrontPointer,
+                    ref windowBackPointer);
+
+                uncompressedBytes++;
+            }
+
+            return 0;
+        }
+
+
+        /// <summary>
         /// Purkaa sisääntulevan tietovirran ulosmenevään tietovirtaan.
         /// 
         /// Käsittelee tietovirtoja luokan määritellyssä puskurikoossa.
         /// </summary>
+        /// <param name="expectedDataSize">Odotettu pakkaamattoman datan koko</param>
         /// <param name="window">Pakkausikkuna</param>
         /// <param name="inputStream">Sisääntuleva tietovirta</param>
         /// <param name="outputStream">Ulosmenevä tietovirta</param>
         public bool Decode(
+            ulong expectedDataSize,
             byte[] window,
             Stream inputStream,
             Stream outputStream)
@@ -682,137 +979,54 @@ namespace Tiracompress.Algorithms
 
             var outputBytePointer = 0;
 
-            ushort distance;
-
-            bool modifiedInputBuffer;
+            bool modifiedInputBuffer = false;
             var inputBufferStart = 0;
             var readFromInput = inputBuffer.Length;
 
-            while (inputStream.Position < inputStream.Length)
+            var inputBitPointer = 0;
+
+            while (inputStream.Position < inputStream.Length || modifiedInputBuffer)
             {
-                var read = inputStream.Read(inputBuffer, inputBufferStart, readFromInput) + inputBufferStart;
-                var inputPointer = 0;
-                modifiedInputBuffer = false;
+                var read = inputStream.Read(inputBuffer, inputBufferStart, readFromInput);
 
-                while (inputPointer < read)
+                var remainder = DecodeBuffer(
+                    read == 0,
+                    window,
+                    ref windowFrontPointer,
+                    ref windowBackPointer,
+                    expectedDataSize,
+                    inputBuffer,
+                    inputBufferStart + read,
+                    ref inputBitPointer,
+                    outputBuffer,
+                    outputStream,
+                    ref outputBytePointer,
+                    ref uncompressedBytes);
+
+                if (remainder > 0)
                 {
-                    if ((read - inputPointer) < 3)
-                    {
-                        // Koodaus katkeaa kesken puskurin loppuun, siirretään loput tavut alkuun ja luetaan loppu puskuri täyteen
-                        var remaining = read - inputPointer;
-
-                        Buffer.BlockCopy(inputBuffer, inputPointer, inputBuffer, 0, remaining);
-                        inputBufferStart = remaining;
-                        readFromInput = inputBuffer.Length - remaining;
-                        modifiedInputBuffer = true;
-
-                        break;
-                    }
-
-                    distance = BitConverter.ToUInt16(inputBuffer, inputPointer);
-                    inputPointer += 2;
-
-                    byte symbol;
-
-                    switch (distance)
-                    {
-                        case 0:
-                            // Literaali
-                            symbol = inputBuffer[inputPointer];
-                            inputPointer++;
-
-                            outputBuffer[outputBytePointer] = symbol;
-                            outputBytePointer++;
-                            uncompressedBytes++;
-
-                            AddInputToWindow(
-                                window,
-                                _windowMaxSize,
-                                symbol,
-                                ref windowFrontPointer,
-                                ref windowBackPointer);
-
-                            break;
-                        default:
-                            // Viittauksen pituus + seuraava byte
-                            if ((read - inputPointer) < 2)
-                            {
-                                // Koodaus katkeaa kesken puskurin loppuun, palautetaan tilanne, siirretään loput tavut alkuun ja luetaan loppu puskuri täyteen
-                                var remaining = read - inputPointer + 2;
-
-                                Buffer.BlockCopy(inputBuffer, inputPointer - 2, inputBuffer, 0, remaining);
-                                inputBufferStart = remaining;
-                                readFromInput = inputBuffer.Length - remaining;
-                                modifiedInputBuffer = true;
-
-                                break;
-                            }
-
-                            var length = inputBuffer[inputPointer];
-                            inputPointer++;
-
-                            var start = windowBackPointer - distance;
-
-                            for (int p = 0; p < length; p++)
-                            {
-                                symbol = window[(start + p) % _windowMaxSize];
-
-                                outputBuffer[outputBytePointer] = symbol;
-                                outputBytePointer++;
-                                uncompressedBytes++;
-
-                                AddInputToWindow(
-                                    window,
-                                    _windowMaxSize,
-                                    symbol,
-                                    ref windowFrontPointer,
-                                    ref windowBackPointer);
-
-                                // Tarkista loppuiko blokki
-                                if (outputBytePointer >= outputBuffer.Length)
-                                {
-                                    _ = FlushOutputBlock(outputBuffer, outputBuffer.Length, outputStream);
-                                    outputBytePointer = 0;
-                                }
-                            }
-
-                            symbol = inputBuffer[inputPointer];
-                            inputPointer++;
-
-                            outputBuffer[outputBytePointer] = symbol;
-                            outputBytePointer++;
-                            uncompressedBytes++;
-
-                            AddInputToWindow(
-                                window,
-                                _windowMaxSize,
-                                symbol,
-                                ref windowFrontPointer,
-                                ref windowBackPointer);
-
-                            break;
-                    }
-
-                    if (modifiedInputBuffer)
-                        break;
-
-                    // Tarkista loppuiko blokki
-                    if (outputBytePointer >= outputBuffer.Length)
-                    {
-                        _ = FlushOutputBlock(outputBuffer, outputBuffer.Length, outputStream);
-                        outputBytePointer = 0;
-                    }
+                    // Koodaus katkeaa mahdollisesti kesken puskurin lopun, 
+                    // siirretään loput tavut alkuun ja luetaan loppu puskuri täyteen
+                    Buffer.BlockCopy(inputBuffer, inputBufferStart + read - remainder, inputBuffer, 0, remainder);
+                    inputBufferStart = remainder;
+                    readFromInput = inputBuffer.Length - remainder;
+                    modifiedInputBuffer = true;
+                }
+                else
+                {
+                    readFromInput = inputBuffer.Length;
+                    modifiedInputBuffer = false;
+                    inputBufferStart = 0;
                 }
 
-                if (!modifiedInputBuffer)
+                if (uncompressedBytes == expectedDataSize)
                 {
-                    // Palauta täysi puskurin tila luettavaksi
-                    inputBufferStart = 0;
-                    readFromInput = inputBuffer.Length;
+                    // Kaikki purettu
+                    break;
                 }
             }
 
-            // Kirjoita viimeinen keskeneräinen blokki
+            // Kirjoita viimeinen keskeneräinen puskuri
             if (outputBytePointer > 0)
             {
                 _ = FlushOutputBlock(outputBuffer, outputBytePointer, outputStream);
@@ -837,13 +1051,23 @@ namespace Tiracompress.Algorithms
             inputStream.Position = 0;
             outputStream.SetLength(0);
 
+            byte[] uLongBuffer = new byte[8];
+
+            if (inputStream.Read(uLongBuffer, 0, uLongBuffer.Length) != uLongBuffer.Length)
+            {
+                // Ei kyetty lukemaan edes oletettua kokoa, virheellinen tiedostosisältö?
+                return null;
+            }
+
+            var expectedDataSize = BitConverter.ToUInt64(uLongBuffer);
+
             // Uusi ikkuna dekoodaukseen
             var window = new byte[_windowMaxSize];
 
             // Aloita dekoodaus
             var timing = Stopwatch.StartNew();
 
-            if (!Decode(window, inputStream, outputStream))
+            if (!Decode(expectedDataSize, window, inputStream, outputStream))
             {
                 // Ei kyetty purkamaan dataosuutta, virheellinen tiedostosisältö?
                 return null;

@@ -49,7 +49,8 @@ namespace Tiracompress
             using var input = File.OpenRead(inputFile);
             using var output = File.Create(outputFile);
 
-            var lz77 = new Lz77(32 * 1024);
+            // Käytetään oletus pakkausikkunaa
+            var lz77 = new Lz77();
 
             Console.WriteLine();
             Console.Write("Uncompressing data... ");
